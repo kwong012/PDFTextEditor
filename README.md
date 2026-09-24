@@ -1,7 +1,7 @@
 # PDFTextEditor
 
 在**电子文本 PDF** 上原地修改文字，并让改动在视觉上与原文件一致。
-适用于 Word / Aspose.Words 等导出的可选中文本 PDF；不适用于扫描件（图片型 PDF）。
+适用于 Word 等 Office 软件导出的可选中文本 PDF（文字可选中/可搜索）；不适用于扫描件（图片型 PDF）。
 
 提供两种用法：
 
