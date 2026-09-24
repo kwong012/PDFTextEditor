@@ -1,19 +1,16 @@
 # PDFTextEditor
 
-在**电子文本 PDF** 上原地修改文字，并让改动在视觉上与原文件一致。
-适用于 Word 等 Office 软件导出的可选中文本 PDF；不适用于扫描件。
+在**电子文本 PDF** 上原地修改文字，并尽可能让改动在视觉上与原文件一致。
+适用于 Word 等 Office 软件导出的可选中文本 PDF，不适用于扫描件。
 
-提供三种用法：
+嘿嘿（￣︶￣）↗　本来是用来p假条的，顺便小改pdf的，后来pymupdf基础上加GUI,简化了命令行里的一些操作。
 
-- **便携版**：到 Releases 下载 zip，解压即用。
-- **图形界面** `pdf_editor_gui.py`：在预览里点选要改的文字，输入替换内容，所见即所得。
-- **命令行** `edit_pdf.py`：按 `config.json` 批量替换，便于自动化和复用。
-
+目前纯个人使用，我也不知道还有什么bug，界面撕裂什么的就先不管了，能p就是好 (:
 ![PDFTextEditor 界面：左侧「原图 / 改后」对比预览，右侧编辑与修改清单](assets/screenshot.png)
 
 ---
 
-## 下载使用
+## 下载
 
 从 [Releases](../../releases) 下载 `PDFTextEditor-Portable-<版本>.zip`，
 解压到任意位置，
@@ -43,35 +40,7 @@ pip install -r requirements.txt
 python pdf_editor_gui.py
 ```
 
-**使用**，界面右上角「帮助」里有说明：
 
-1. **打开 PDF**；
-2. 在左侧「原图」里**点一下要修改的文字**，它会高亮，并自动带出字体/字号/左边框；
-3. 填「替换为」，按需设置字体、字号、对齐、范围，然后点**添加到清单**（可加多条）；
-4. 点**另存为…** 导出新 PDF。
-
-**缩放**：
-
-- 拖动工具栏「缩放」滑块；
-- 在百分比输入框里输入数字后回车；
-- 鼠标停在预览上**滚动滚轮**：**以鼠标所在位置为中心**放大缩小（按住 Ctrl 滚轮则改为上下滚动）；
-- 快捷键 `Ctrl+0` 复位 100%、`Ctrl+=` 放大、`Ctrl+-` 缩小；按住鼠标中键可拖动平移。
-
-**调整布局**：
-
-- 左（PDF 预览）↔ 右（操作面板）：拖**宽度**；
-- 左侧「原图 ↔ 改后预览」：拖**宽度**；
-- 右侧「编辑 ↔ 修改清单」：拖**高度**；
-- 底部「日志」栏：拖**高度**（整窗通栏，左右占满）。
-
-各面板设有**最小尺寸**（按内容完整显示所需宽度自动测算），拖到极限也不会把「字号」「左边框x」等控件压没。
-
-**打开方式**：除点「打开 PDF」外，也可把路径作为参数传入直接打开——
-`python pdf_editor_gui.py "D:\某文件.pdf"`；打包成 exe 后可把 PDF 拖到 exe 上打开。
-
-**对比预览**：勾选工具栏的「对比预览」，左侧会**在当前窗口内**并排分割出「原图 / 改后」两块，两边缩放、滚动同步，无需额外弹窗。
-
-**帮助**：右侧「帮助」标签内含四步操作、各控件说明与常见问题。
 
 ### 3. 命令行
 
@@ -120,35 +89,9 @@ GUI 的「导出 config / 导入 config」与 CLI 使用**同一套格式**，�
 | `align` | 缺省按原基点重绘；`left` 从 `left_border_x + left_gap` 起左对齐 |
 | `bbox` | PDF 坐标 `[x0,y0,x1,y1]`，`scope=single` 时用于精确定位 |
 
----
 
-## 底层
 
-1. **逐字符定位**
-   整段字符串 + 字体默认字距重排会累积误差（实测会把 117.4pt 的字串画成 119.1pt）。
-   必须用 `rawdict` 取每个字符的**基点(origin)** 逐字绘制。
 
-2. **"加粗"往往是描边，不是字体**
-   很多导出器会把 `SimSun` 与 `SimSun,Bold` 内嵌成**同一份字体**（字节相同），
-   真正的加粗来自内容流里的 `2 Tr`（填充+描边）+ 很小线宽。
-   因此重绘时要用 `render_mode=2` + 极细 `border_width` 复刻，而不是换成黑体。
-   用界面上的「自动标定加粗」实测校准最稳。
-
-3. **删旧字不要填白块**
-   `add_redact_annot(rect, fill=None)`。若填白色，会在文字四周留下一个白色小矩形，
-   多数阅读器看不见，但部分阅读器会把它渲染成边框，看起来像"表格多出一个框把字盖住"。
-   同时 `apply_redactions` 需带 `graphics=LINE_ART_NONE, images=IMAGE_NONE` 保住表格线。
-
-4. **收尾**
-   `doc.subset_fonts()` 做字体子集化（否则文件会从几十 KB 涨到约 10MB）；
-   `doc.set_metadata(原元数据)` 保留 Producer/Creator/时间戳。
-
-5. **`.ttc` 字体**
-   PyMuPDF 对 Windows 的 `simsun.ttc` 支持不稳，程序会自动用 fontTools 取第 0 号字面
-   转成 `.ttf` 缓存。缓存目录：
-
-   - 源码运行：用户缓存目录（`%LOCALAPPDATA%\PDFTextEditor`）；
-   - exe 打包运行：同样写 `%LOCALAPPDATA%\PDFTextEditor`，不依赖 exe 所在目录可写。
 
 ---
 
@@ -167,7 +110,7 @@ powershell -ExecutionPolicy Bypass -File build_exe.ps1
 # 想要单文件版：加 -Onefile   想看报错：加 -Console
 ```
 
-> 分发给别人时请用 **64 位** Python 建 venv（32 位包虽能跑，但有 4 GB 内存上限）。
+> 分发给别人时请用 **64 位** Python 建 venv（32 位包有 4 GB 内存上限）。
 > 自查：`.\.venv\Scripts\python.exe -c "import struct;print(struct.calcsize('P')*8)"` 应输出 `64`。
 
 `build_exe.ps1` 会自动优先使用 `.venv`（没有则退回全局 python）。
@@ -189,50 +132,6 @@ powershell -ExecutionPolicy Bypass -File build_portable.ps1
 放入 `portable.flag` 和 `packaging\使用说明.txt` → 压成
 `worktemp\portable\PDFTextEditor-Portable-<版本>.zip`，并打印大小与 SHA256。
 
-对方拿到 zip 后：解压到任意位置 → 双击 `PDFTextEditor.exe` 即用；
-**不需要安装、不需要管理员权限、不需要装 Python**，「卸载」就是删掉文件夹。
 
-> 不要把解压后的文件夹放到 `C:\Program Files` 这类需要管理员权限的目录，
-> 否则字体缓存写不进去。
 
----
 
-## 目录结构
-
-```
-PDFTextEditor/
-├── pdf_edit_core.py     核心：匹配 / 定位 / 删除 / 重绘 / 收尾（含字体表）
-├── edit_pdf.py          命令行入口
-├── pdf_editor_gui.py    图形界面入口
-├── config.example.json  配置模板
-├── VERSION              版本号（打包脚本读取）
-├── build_exe.ps1        打包脚本（默认 onedir，含 --icon）
-├── build_portable.ps1   便携版打包（构建 → 标记 → 说明 → zip）
-├── packaging/
-│   └── 使用说明.txt     随便携版一起分发的说明
-├── assets/              图标与截图
-│   ├── icon.svg         矢量源
-│   ├── icon.png         512×512 位图
-│   ├── icon.ico         多尺寸 ICO（打包/窗口图标用）
-│   ├── icon_preview.png 自检预览
-│   └── screenshot.png   界面截图（README 用）
-├── requirements.txt
-└── README.md
-```
-
-> 图标由 `worktemp/icon/make_icon.py`（Pillow 生成，不随仓库分发）产出；
-> 日常使用只需 `assets/` 里的成品。
->
-> 构建/打包的中间产物统一放在 `worktemp/`（`pyinstaller/` 输出、`icon/` 生成脚本），
-> 已被 `.gitignore` 忽略；虚拟环境放在项目根的 `.venv`（同样已忽略）。
-
-**字体**：下拉列出本机实际可用的 20+ 种中文字体（宋黑楷仿/雅黑/正黑/等线/幼圆/隶书/华文系列/方正系列…），
-也可点「…」浏览任意 `.ttf/.ttc/.otf`；修改 PDF 时会按原字体名自动匹配同款系统字体。
-
-## 常见问题
-
-- **改完文字变细/变粗**：用「自动标定加粗」重新校准 `bold_stroke`。
-- **文件体积暴涨**：确认保存走了 `finalize()`（含 `subset_fonts()`）。
-- **点选不到文字**：该 PDF 可能是扫描件（无文本层），本工具不适用。
-- **左下角预览与最终不一致**：左下角显示的是**原图**；点「预览对比」看改后效果。
-- **便携版字体缓存写不进去**：文件夹被放在了 `C:\Program Files` 这类无写权限的位置，换到桌面或自己的目录即可。
