@@ -142,14 +142,12 @@ class PdfEditorApp(tk.Tk):
         self.zoom = 1.2
         self.rules = []
         self.bold_stroke = 0.03
-        self.page_spans = []
         self._span_cache = {}
         self._tiles = {}
         self._img_items = {}
         self._render_job = None
         self._sel_bbox = None
         self._updating = False
-        self._pan = None
         self.show_after = tk.BooleanVar(value=False)
         self.font_choices = core.list_available_fonts()   # 本机可用字体（覆盖面广）
 
@@ -487,7 +485,7 @@ class PdfEditorApp(tk.Tk):
         self._span_cache.clear()
         self._tiles.clear()
         self._sel_bbox = None
-        self.page_spans = self._spans_of_page(self.page_no)
+        self._spans_of_page(self.page_no)      # 预热当前页片段缓存
         self._refresh_rules()
         self.title(f"{APP_TITLE} — {os.path.basename(path)}")
         self._log(f"已打开: {path} ({self.orig.page_count} 页)")
@@ -509,15 +507,15 @@ class PdfEditorApp(tk.Tk):
 
     # ================= 渲染（只画可见区域） =================
     def _spans_of_page(self, pno):
+        """当前页可点选的文字片段 [(rect, text, font, size)]，按页缓存。"""
         if pno not in self._span_cache:
             spans = []
-            for p, page, span, text in core.iter_spans(self.orig):
-                if p != pno or not text.strip():
+            for _p, _page, span, text in core.iter_spans(self.orig, pno):
+                if not text.strip():
                     continue
-                spans.append((fitz.Rect(span["bbox"]), text, span.get("font", ""), span.get("size", 10)))
+                spans.append((fitz.Rect(span["bbox"]), text,
+                              span.get("font", ""), span.get("size", 10)))
             self._span_cache[pno] = spans
-        if pno == self.page_no:
-            self.page_spans = self._span_cache[pno]
         return self._span_cache[pno]
 
     def _set_scrollregion(self):
@@ -532,8 +530,10 @@ class PdfEditorApp(tk.Tk):
             self._last_sr = sr
 
     def _visible_pts(self, canvas):
-        w = canvas.winfo_width(); h = canvas.winfo_height()
-        x0 = canvas.canvasx(0); y0 = canvas.canvasy(0)
+        w = canvas.winfo_width()
+        h = canvas.winfo_height()
+        x0 = canvas.canvasx(0)
+        y0 = canvas.canvasy(0)
         return fitz.Rect(x0 / self.zoom, y0 / self.zoom,
                          (x0 + w) / self.zoom, (y0 + h) / self.zoom), w, h
 
@@ -754,7 +754,6 @@ class PdfEditorApp(tk.Tk):
         self.hbar.set(*xv)
 
     def _pan_start(self, event, canvas):
-        self._pan = (event.x, event.y)
         canvas.scan_mark(event.x, event.y)
 
     def _pan_move(self, event, canvas):
@@ -808,8 +807,10 @@ class PdfEditorApp(tk.Tk):
             return
         rect, text, font, size = hit
         self._sel_bbox = rect
-        self.e_old.delete(0, "end"); self.e_old.insert(0, text)
-        self.e_size.delete(0, "end"); self.e_size.insert(0, str(int(round(size))))
+        self.e_old.delete(0, "end")
+        self.e_old.insert(0, text)
+        self.e_size.delete(0, "end")
+        self.e_size.insert(0, str(int(round(size))))
         sysfont = core.find_system_font(font)
         for i, (p, _l) in enumerate(self.font_choices):
             if os.path.normcase(p) == os.path.normcase(sysfont):
@@ -984,8 +985,8 @@ class PdfEditorApp(tk.Tk):
 
         ref = gray(self.orig)
         origins = None
-        for p, page, span, t in core.iter_spans(self.orig):
-            if p == self.page_no and t == text and abs(fitz.Rect(span["bbox"]).x0 - rect.x0) < 0.01:
+        for _p, _page, span, t in core.iter_spans(self.orig, self.page_no):
+            if t == text and abs(fitz.Rect(span["bbox"]).x0 - rect.x0) < 0.01:
                 origins = [tuple(c["origin"]) for c in span["chars"]]
                 break
         if origins is None:
@@ -994,7 +995,11 @@ class PdfEditorApp(tk.Tk):
         for bw in (0.02, 0.025, 0.03, 0.035, 0.04):
             doc = fitz.open(self.src_path)
             pg = doc[self.page_no]
-            r = fitz.Rect(rect); r.x0 -= .7; r.x1 += .7; r.y0 -= 1.2; r.y1 += 1.2
+            r = fitz.Rect(rect)
+            r.x0 -= 0.7
+            r.x1 += 0.7
+            r.y0 -= 1.2
+            r.y1 += 1.2
             pg.add_redact_annot(r, fill=None)
             pg.apply_redactions(**core.PDF_REDACT)
             for ch, (x, y) in zip(text, origins):

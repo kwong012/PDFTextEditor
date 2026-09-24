@@ -37,11 +37,11 @@ def main():
     repls = cfg.get("replacements", [])
 
     doc = fitz.open(src)
-    meta = fitz.open(src).metadata
+    meta = doc.metadata
     targets = core.collect_targets(doc, repls, cfg)
 
     print(f"匹配到 {len(targets)} 处：")
-    for page, bbox, origins, rule, span in targets:
+    for page, bbox, _origins, rule, _span in targets:
         print(f"  p{page.number} {rule.get('old')!r} -> {rule.get('new')!r} "
               f"bbox={[round(v, 1) for v in bbox]}")
 

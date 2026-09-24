@@ -12,6 +12,7 @@ pdf_edit_core —— PDF 原位文字替换核心逻辑（CLI 与 GUI 共用）
 from __future__ import annotations
 
 import os
+
 import fitz
 
 DEFAULT_FONT = r"C:\Windows\Fonts\simsun.ttc"
@@ -47,10 +48,8 @@ CJK_FONT_CANDIDATES = [
     (r"C:\Windows\Fonts\SimsunExtG.ttf", "宋体-扩展 SimSun-ExtG"),
 ]
 
-# 兼容旧名（未过滤）
-FONT_CHOICES = CJK_FONT_CANDIDATES
 
-
+# 本机实际可用的候选字体（运行时过滤）
 def list_available_fonts():
     """返回本机实际存在的候选字体 [(路径, 名称)]；宋体兜底。"""
     out = [(p, label) for p, label in CJK_FONT_CANDIDATES if os.path.exists(p)]
@@ -100,6 +99,8 @@ FONT_ALIASES = {
     "segoeui": r"C:\Windows\Fonts\segoeui.ttf", "georgia": r"C:\Windows\Fonts\georgia.ttf",
     "cambria": r"C:\Windows\Fonts\cambria.ttc", "consola": r"C:\Windows\Fonts\consola.ttf",
 }
+
+# 删旧字用的 redaction 参数：不动图片与线条（否则会破坏表格线）
 PDF_REDACT = dict(
     images=fitz.PDF_REDACT_IMAGE_NONE,
     graphics=fitz.PDF_REDACT_LINE_ART_NONE,
@@ -173,9 +174,13 @@ def _bbox_close(a: fitz.Rect, b, tol: float = 1.5) -> bool:
             and abs(a.x1 - b.x1) < tol and abs(a.y1 - b.y1) < tol)
 
 
-def iter_spans(doc):
-    """遍历所有页面，yield (page, span_dict, text)。"""
-    for pno in range(doc.page_count):
+def iter_spans(doc, page_no=None):
+    """遍历文本片段，yield (pno, page, span_dict, text)。
+
+    page_no 给定时只扫该页：预览与标定只需要当前页，避免整篇扫描。
+    """
+    pages = range(doc.page_count) if page_no is None else (page_no,)
+    for pno in pages:
         page = doc[pno]
         for block in page.get_text("rawdict")["blocks"]:
             if block.get("type") != 0:
@@ -187,7 +192,7 @@ def iter_spans(doc):
 
 
 def collect_targets(doc, repls, cfg=None):
-    """按规则匹配片段，返回 [(page, bbox, origins, rule)]。
+    """按规则匹配片段，返回 [(page, bbox, origins, rule, span)]。
 
     rule["scope"]=="single" 时用 rule["page"] + rule["bbox"] 精确定位单处。
     """
@@ -233,13 +238,18 @@ def apply_replacements(doc, cfg, targets=None):
     if targets is None:
         targets = collect_targets(doc, repls, cfg)
 
+    # 每条目标的绘制参数只解析一次，删旧与重绘两趟共用
+    plans = [(page, bbox, origins, rule, resolve_settings(rule, cfg))
+             for page, bbox, origins, rule, _span in targets]
+
     # 1) 删旧字（不填白块）
     pages_touched = set()
-    for page, bbox, origins, rule, span in targets:
-        st = resolve_settings(rule, cfg)
+    for page, bbox, _origins, _rule, st in plans:
         r = fitz.Rect(bbox)
-        r.x0 -= st["pad_x"]; r.x1 += st["pad_x"]
-        r.y0 -= st["pad_y"]; r.y1 += st["pad_y"]
+        r.x0 -= st["pad_x"]
+        r.x1 += st["pad_x"]
+        r.y0 -= st["pad_y"]
+        r.y1 += st["pad_y"]
         page.add_redact_annot(r, fill=None)
         pages_touched.add(page.number)
     for pno in pages_touched:
@@ -247,8 +257,7 @@ def apply_replacements(doc, cfg, targets=None):
 
     # 2) 逐字重绘
     cache = {}
-    for page, bbox, origins, rule, span in targets:
-        st = resolve_settings(rule, cfg)
+    for page, _bbox, origins, rule, st in plans:
         ttf = cache.setdefault(st["font_file"], ensure_ttf(st["font_file"]))
         pos = compute_positions(origins, rule["new"], rule, st["font_size"])
         for ch, (x, y) in zip(rule["new"], pos):
@@ -269,21 +278,3 @@ def finalize(doc, out_path, original_metadata=None):
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     doc.save(out_path, garbage=4, deflate=True, clean=True)
     return out_path
-
-
-def process(src, out, cfg, dry_run=False, log=print):
-    """一步到位：开文件 -> 替换 -> 保存。返回匹配到的片段数。"""
-    doc = fitz.open(src)
-    meta = fitz.open(src).metadata
-    repls = cfg.get("replacements", [])
-    targets = collect_targets(doc, repls, cfg)
-    log(f"匹配到 {len(targets)} 处")
-    for page, bbox, origins, rule, span in targets:
-        log(f"  p{page.number} {rule.get('old')!r} -> {rule.get('new')!r} "
-            f"bbox={[round(v, 1) for v in bbox]}")
-    if dry_run:
-        return len(targets)
-    apply_replacements(doc, cfg, targets)
-    finalize(doc, out, meta)
-    log(f"已保存: {out}  ({os.path.getsize(out)} bytes)")
-    return len(targets)
