@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-pdf_editor_gui —— PDF 文字修改器（Tkinter 图形界面）
+pdf_editor_gui —— PDFTextEditor 图形界面（Tkinter）
 
 性能要点：预览只渲染"当前可见区域 + 缓冲边"（clip 渲染），不整页渲染；
 滚动/缩放后对未覆盖区域做防抖重绘，因此高倍缩放也不卡。
@@ -24,7 +24,7 @@ import numpy as np
 
 import pdf_edit_core as core
 
-APP_TITLE = "PDF 文字修改器"
+APP_TITLE = "PDFTextEditor"
 ZOOM_MIN, ZOOM_MAX = 0.2, 5.0
 FONT_CHOICES = [(p, label) for p, label in core.FONT_CHOICES]
 TILE_MARGIN = 0.5          # 缓冲边 = 视口尺寸的 50%
@@ -32,7 +32,7 @@ RENDER_DEBOUNCE_MS = 40
 
 STEPS = "① 点左侧预览里的文字  ② 填「替换为」  ③ 点「添加到清单」  ④ 点「另存为」"
 
-HELP_TEXT = f"""PDF 文字修改器 · 使用说明
+HELP_TEXT = f"""PDFTextEditor · 使用说明
 
 ────────────────────────────
 【四步上手】
