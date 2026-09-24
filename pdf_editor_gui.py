@@ -43,9 +43,21 @@ HELP_TEXT = f"""PDF 文字修改器 · 使用说明
 【缩放的三种方式】
 · 拖动「缩放」滑块
 · 在百分比输入框里输入数字后回车（例如 180）
-· 鼠标停在预览上滚动滚轮放大缩小；按住 Ctrl 滚轮则改为上下滚动
+· 鼠标停在预览上滚动滚轮放大缩小（以鼠标所在位置为中心）；按住 Ctrl 滚轮则改为上下滚动
 · 快捷键：Ctrl+0 复位 100%，Ctrl+= 放大，Ctrl+- 缩小
 · 按住鼠标中键拖动可平移；也可用滚动条
+
+────────────────────────────
+【调整界面布局】
+各面板之间的分隔条都能用鼠标拖动：
+· 左（PDF 预览）↔ 右（操作面板）：拖宽度
+· 「原图 ↔ 改后预览」：拖宽度
+· 右侧「编辑/帮助」「修改清单」「日志」三块：互相拖高度
+（每次启动使用默认布局，不做记忆。）
+
+把 PDF 路径作为参数传给程序可直接打开：
+    python pdf_editor_gui.py "D:\\某文件.pdf"
+打包成 exe 后也可以把 PDF 拖到 exe 上打开。
 
 ────────────────────────────
 【各控件说明】
@@ -94,7 +106,7 @@ def enable_dpi_awareness():
 
 
 class PdfEditorApp(tk.Tk):
-    def __init__(self):
+    def __init__(self, initial=None):
         super().__init__()
         self.title(APP_TITLE)
         self.geometry("1320x860")
@@ -117,6 +129,8 @@ class PdfEditorApp(tk.Tk):
         self._build_ui()
         self._set_hint(STEPS)
         self._log("就绪。请先点「打开 PDF」。第一次用请看右侧「帮助」标签。")
+        if initial and os.path.exists(initial):
+            self.load_pdf(initial)
 
     # ================= UI =================
     def _build_ui(self):
@@ -141,12 +155,13 @@ class PdfEditorApp(tk.Tk):
         ttk.Button(bar, text="另存为…", command=self.save_as).pack(side="left")
         ttk.Button(bar, text="帮助", command=lambda: self._nb.select(self.tab_help)).pack(side="right")
 
-        outer = ttk.Panedwindow(self, orient="horizontal")
+        outer = tk.PanedWindow(self, orient="horizontal", sashwidth=6, sashrelief="raised",
+                               background="#d0d0d0", bd=0, opaqueresize=True)
         outer.pack(fill="both", expand=True)
 
         # ---- 左：缩放条 + 画布 ----
         left = ttk.Frame(outer)
-        outer.add(left, weight=3)
+        outer.add(left, stretch="always", minsize=420)
 
         zbar = ttk.Frame(left, padding=(6, 4))
         zbar.pack(side="top", fill="x")
@@ -171,14 +186,15 @@ class PdfEditorApp(tk.Tk):
         body.rowconfigure(0, weight=1)
         body.columnconfigure(0, weight=1)
 
-        self.paned = ttk.Panedwindow(body, orient="horizontal")
+        self.paned = tk.PanedWindow(body, orient="horizontal", sashwidth=6, sashrelief="raised",
+                                    background="#d0d0d0", bd=0, opaqueresize=True)
         self.paned.grid(row=0, column=0, sticky="nsew")
 
         f_before = ttk.Frame(self.paned)
         ttk.Label(f_before, text="原图 · 点这里选文字", foreground="#0a6").pack(side="top", anchor="w", padx=4)
         self.canvas = tk.Canvas(f_before, background="#3b3b3b", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
-        self.paned.add(f_before, weight=1)
+        self.paned.add(f_before, stretch="always", minsize=280)
 
         self.f_after = ttk.Frame(self.paned)
         ttk.Label(self.f_after, text="改后 · 只读预览", foreground="#c60").pack(side="top", anchor="w", padx=4)
@@ -201,27 +217,38 @@ class PdfEditorApp(tk.Tk):
         self.bind("<Control-equal>", lambda e: self.set_zoom(self.zoom * 1.25))
         self.bind("<Control-minus>", lambda e: self.set_zoom(self.zoom / 1.25))
 
-        # ---- 右：Notebook（编辑 / 帮助） + 日志 ----
+        # ---- 右：竖向可拖（编辑/帮助 | 修改清单 | 日志） ----
         right = ttk.Frame(outer, padding=6)
-        outer.add(right, weight=2)
+        outer.add(right, stretch="never", minsize=330, width=440)
 
-        self._nb = ttk.Notebook(right)
+        self.right_paned = tk.PanedWindow(right, orient="vertical", sashwidth=6, sashrelief="raised",
+                                          background="#d0d0d0", bd=0, opaqueresize=True)
+        self.right_paned.pack(fill="both", expand=True)
+
+        # 块1：编辑 / 帮助
+        pane1 = ttk.Frame(self.right_paned)
+        self._nb = ttk.Notebook(pane1)
         self._nb.pack(fill="both", expand=True)
         self.tab_help = ttk.Frame(self._nb)
         tab_edit = ttk.Frame(self._nb)
         self._nb.add(tab_edit, text="编辑")
         self._nb.add(self.tab_help, text="帮助")
-
-        self._build_edit_tab(tab_edit)
+        self._build_edit_form(tab_edit)
         self._build_help_tab(self.tab_help)
+        self.right_paned.add(pane1, stretch="never", minsize=210, height=340)
 
-        logf = ttk.LabelFrame(right, text="日志", padding=4)
-        logf.pack(fill="both", expand=False, pady=(6, 0))
-        self.log = tk.Text(logf, height=6, wrap="word")
-        self.log.pack(fill="both", expand=True)
+        # 块2：修改清单
+        pane2 = ttk.Frame(self.right_paned)
+        self._build_rules_pane(pane2)
+        self.right_paned.add(pane2, stretch="always", minsize=110)
 
-    def _build_edit_tab(self, parent):
-        self.lbl_hint = ttk.Label(parent, text="", foreground="#06c", wraplength=360, justify="left")
+        # 块3：日志
+        pane3 = ttk.Frame(self.right_paned)
+        self._build_log_pane(pane3)
+        self.right_paned.add(pane3, stretch="never", minsize=80, height=140)
+
+    def _build_edit_form(self, parent):
+        self.lbl_hint = ttk.Label(parent, text="", foreground="#06c", wraplength=380, justify="left")
         self.lbl_hint.pack(fill="x", pady=(0, 6))
 
         edit = ttk.LabelFrame(parent, text="编辑选中片段", padding=6)
@@ -278,18 +305,34 @@ class PdfEditorApp(tk.Tk):
         ttk.Button(btns, text="取消选择", command=self.clear_selection).pack(side="left", padx=4)
         edit.columnconfigure(1, weight=1)
 
+    def _build_rules_pane(self, parent):
         lst = ttk.LabelFrame(parent, text="修改清单", padding=6)
-        lst.pack(fill="both", expand=True, pady=(8, 0))
-        self.tree = ttk.Treeview(lst, columns=("old", "new", "scope"), show="headings", height=9)
+        lst.pack(fill="both", expand=True)
+        wrap = ttk.Frame(lst)
+        wrap.pack(fill="both", expand=True)
+        sb = ttk.Scrollbar(wrap, orient="vertical")
+        self.tree = ttk.Treeview(wrap, columns=("old", "new", "scope"), show="headings",
+                                 height=6, yscrollcommand=sb.set)
+        sb.configure(command=self.tree.yview)
         for c, w, t in (("old", 120, "原文"), ("new", 140, "替换为"), ("scope", 56, "范围")):
             self.tree.heading(c, text=t)
             self.tree.column(c, width=w, anchor="w")
-        self.tree.pack(fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+        self.tree.pack(side="left", fill="both", expand=True)
         lb = ttk.Frame(lst)
         lb.pack(fill="x", pady=(4, 0))
         ttk.Button(lb, text="删除选中", command=self.del_rule).pack(side="left")
         ttk.Button(lb, text="清空", command=self.clear_rules).pack(side="left", padx=4)
         ttk.Button(lb, text="另存为…", command=self.save_as).pack(side="right")
+
+    def _build_log_pane(self, parent):
+        logf = ttk.LabelFrame(parent, text="日志", padding=4)
+        logf.pack(fill="both", expand=True)
+        sb = ttk.Scrollbar(logf, orient="vertical")
+        self.log = tk.Text(logf, height=4, wrap="word", yscrollcommand=sb.set)
+        sb.configure(command=self.log.yview)
+        sb.pack(side="right", fill="y")
+        self.log.pack(side="left", fill="both", expand=True)
 
     def _build_help_tab(self, parent):
         txt = tk.Text(parent, wrap="word", padx=10, pady=8)
@@ -329,8 +372,10 @@ class PdfEditorApp(tk.Tk):
     # ================= 打开 / 渲染 =================
     def open_pdf(self):
         path = filedialog.askopenfilename(title="选择 PDF", filetypes=[("PDF", "*.pdf"), ("所有文件", "*.*")])
-        if not path:
-            return
+        if path:
+            self.load_pdf(path)
+
+    def load_pdf(self, path):
         try:
             self.orig = fitz.open(path)
         except Exception as e:
@@ -371,7 +416,8 @@ class PdfEditorApp(tk.Tk):
         self._build_span_index(self.page_no)
         self._draw_page(self.canvas, self.orig, "before")
         self.lbl_page.config(text=f"{self.page_no + 1}/{self.orig.page_count}")
-        self._sel_bbox = None
+        if self._sel_bbox is not None:
+            self._highlight(self._sel_bbox)
 
     def _render_after(self):
         if not self.show_after.get() or self.orig is None or not self.rules:
@@ -400,9 +446,11 @@ class PdfEditorApp(tk.Tk):
         old = self.zoom
         if pivot is None:
             # 默认绕视口中心缩放
-            pivot = (self.canvas.canvasx(max(1, self.canvas.winfo_width()) / 2),
-                     self.canvas.canvasy(max(1, self.canvas.winfo_height()) / 2))
-        # pivot 是"画布内容坐标"下的锚点，缩放后保持该点位置不动
+            sx = max(1, self.canvas.winfo_width()) / 2
+            sy = max(1, self.canvas.winfo_height()) / 2
+            pivot = (sx, sy, self.canvas.canvasx(sx), self.canvas.canvasy(sy))
+        # pivot = (屏幕x, 屏幕y, 该点内容x, 该点内容y)
+        sx, sy, cx, cy = pivot
         self.zoom = new
         self._updating = True
         self.zoom_var.set(new * 100)
@@ -410,14 +458,13 @@ class PdfEditorApp(tk.Tk):
         self.e_zoom.insert(0, f"{new * 100:.0f}")
         self._updating = False
         self.render()
-        if pivot is not None:
-            px, py = pivot
-            fx, fy = px / old, py / old
-            cw = self.canvas.bbox("all")[2] or 1
-            ch = self.canvas.bbox("all")[3] or 1
-            self.canvas.xview_moveto(max(0.0, (fx * new - px) / cw))
-            self.canvas.yview_moveto(max(0.0, (fy * new - py) / ch))
-            self._sync_from(self.canvas)
+        # 让锚点缩放后仍位于原屏幕位置：left = 内容点新坐标 - 屏幕坐标
+        cw = self.canvas.bbox("all")[2] or 1
+        ch = self.canvas.bbox("all")[3] or 1
+        fx, fy = cx / old, cy / old
+        self.canvas.xview_moveto(max(0.0, fx * new - sx) / cw)
+        self.canvas.yview_moveto(max(0.0, fy * new - sy) / ch)
+        self._sync_from(self.canvas)
 
     def _on_slider(self, _v):
         if self._updating:
@@ -436,7 +483,7 @@ class PdfEditorApp(tk.Tk):
 
     def _on_wheel(self, event):
         canvas = event.widget
-        pivot = (canvas.canvasx(event.x), canvas.canvasy(event.y))
+        pivot = (event.x, event.y, canvas.canvasx(event.x), canvas.canvasy(event.y))
         factor = 1.15 if event.delta > 0 else 1 / 1.15
         self.set_zoom(self.zoom * factor, pivot=pivot)
         return "break"
@@ -485,7 +532,7 @@ class PdfEditorApp(tk.Tk):
     def _toggle_after(self):
         try:
             if self.show_after.get():
-                self.paned.add(self.f_after, weight=1)
+                self.paned.add(self.f_after, stretch="always", minsize=280)
             else:
                 self.paned.forget(self.f_after)
         except tk.TclError:
@@ -499,6 +546,8 @@ class PdfEditorApp(tk.Tk):
         np_ = min(max(self.page_no + d, 0), self.orig.page_count - 1)
         if np_ != self.page_no:
             self.page_no = np_
+            self._sel_bbox = None
+            self.canvas.delete("sel")
             self.render()
 
     # ================= 画布交互 =================
@@ -776,7 +825,8 @@ class PdfEditorApp(tk.Tk):
 
 def main():
     enable_dpi_awareness()
-    app = PdfEditorApp()
+    initial = sys.argv[1] if len(sys.argv) > 1 else None
+    app = PdfEditorApp(initial=initial)
     app.mainloop()
 
 
