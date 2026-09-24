@@ -34,9 +34,9 @@ TILE_MARGIN = 0.5          # 缓冲边 = 视口尺寸的 50%
 RENDER_DEBOUNCE_MS = 40
 
 STEPS = ("① 点左侧预览里的文字\n"
-         "② 填「替换为」\n"
-         "③ 点「添加到清单」\n"
-         "④ 点「另存为」导出")
+         "② 填\"替换为\"\n"
+         "③ 点\"添加到清单\"\n"
+         "④ 点\"另存为\"导出")
 
 HELP_TEXT = f"""PDFTextEditor · 使用说明
 
@@ -156,7 +156,7 @@ class PdfEditorApp(tk.Tk):
         self._apply_styles()
         self._build_ui()
         self._set_hint(STEPS)
-        self._log("就绪。请先点「打开 PDF」。第一次用请看「帮助」。")
+        self._log('就绪. 请先点"打开 PDF". 第一次用请看"帮助".')
         self.after(80, self._on_configure)
         self.after(200, self._apply_minsizes)
         if initial and os.path.exists(initial):
@@ -451,7 +451,7 @@ class PdfEditorApp(tk.Tk):
         self.font_choices.append((path, label))
         self.cb_font.configure(values=[l for _, l in self.font_choices])
         self.cb_font.current(len(self.font_choices) - 1)
-        self._log(f"已加入自定义字体：{path}")
+        self._log(f"已加入自定义字体: {path}")
 
     def _gap_value(self):
         s = self.cb_gap.get()
@@ -477,7 +477,7 @@ class PdfEditorApp(tk.Tk):
         try:
             self.orig = fitz.open(path)
         except Exception as e:
-            messagebox.showerror(APP_TITLE, f"打开失败：{e}")
+            messagebox.showerror(APP_TITLE, f"打开失败: {e}")
             return
         self.src_path = path
         self.page_no = 0
@@ -490,7 +490,7 @@ class PdfEditorApp(tk.Tk):
         self.page_spans = self._spans_of_page(self.page_no)
         self._refresh_rules()
         self.title(f"{APP_TITLE} — {os.path.basename(path)}")
-        self._log(f"已打开：{path}（{self.orig.page_count} 页）")
+        self._log(f"已打开: {path} ({self.orig.page_count} 页)")
         self._set_hint(STEPS)
         self.update_idletasks()
         self.autofit()
@@ -594,7 +594,7 @@ class PdfEditorApp(tk.Tk):
                 self._after_doc = self._build_working()
                 self._after_dirty = False
             except Exception as e:
-                self._log(f"生成预览失败：{e}")
+                self._log(f"生成预览失败: {e}")
                 self._after_doc = None
 
     def _render_all(self):
@@ -822,8 +822,8 @@ class PdfEditorApp(tk.Tk):
         self._highlight(rect)
         self._update_add_state()
         self.e_new.focus_set()
-        self._set_hint(f"已选中「{text}」→ 填「替换为」后按回车")
-        self._log(f"选中：{text!r}（字体 {font or '?'}，{size:.1f}pt）")
+        self._set_hint(f'已选中"{text}", 填"替换为"后按回车')
+        self._log(f'选中: {text!r} (字体 {font or "?"}, {size:.1f}pt)')
         if self.e_new.get().strip():
             self._enable_after()
 
@@ -856,20 +856,27 @@ class PdfEditorApp(tk.Tk):
         self.canvas.create_rectangle(x0 - 2, y0 - 2, x1 + 2, y1 + 2, outline="#e53935", width=2, tags="sel")
 
     def clear_selection(self):
-        self.canvas.delete("sel")
-        self._sel_bbox = None
+        """取消选择：清空 原文/替换为 两栏，去掉左侧高亮。"""
+        self._clear_fields()
+
+    def _clear_fields(self):
+        """清空「原文」「替换为」，取消左侧高亮，并回到四步引导。"""
         self.e_old.delete(0, "end")
+        self.e_new.delete(0, "end")
+        self._sel_bbox = None
+        self.canvas.delete("sel")
         self._update_add_state()
+        self._set_hint(STEPS)
 
     # ================= 规则 =================
     def add_rule(self):
         old = self.e_old.get().strip()
         new = self.e_new.get().strip()
         if not old:
-            messagebox.showwarning(APP_TITLE, "请先在左侧预览里点选要修改的文字。")
+            messagebox.showwarning(APP_TITLE, "请先在左侧预览里点选要修改的文字.")
             return
         if not new:
-            messagebox.showwarning(APP_TITLE, "请填写「替换为」内容。")
+            messagebox.showwarning(APP_TITLE, '请填写"替换为"内容.')
             return
         rule = {"old": old, "new": new,
                 "font": self._selected_font_path(),
@@ -880,7 +887,7 @@ class PdfEditorApp(tk.Tk):
             try:
                 rule["left_border_x"] = float(self.e_border.get())
             except Exception:
-                messagebox.showwarning(APP_TITLE, "左对齐需要「左边框x」（点选片段会自动填入）。")
+                messagebox.showwarning(APP_TITLE, '左对齐需要"左边框x" (点选片段会自动填入).')
                 return
             rule["left_gap"] = self._gap_value() * rule["font_size"]
         if self.v_scope.get() == "single":
@@ -903,18 +910,18 @@ class PdfEditorApp(tk.Tk):
         self._refresh_rules()
         self._enable_after()
         self._render_all()
-        self._log(("已更新" if replaced else "已添加") + f"规则：{old!r} -> {new!r}")
-        self._set_hint("已加入清单（左侧已更新）。可继续点选下一处。")
-        self._update_add_state()
+        self._log(("已更新" if replaced else "已添加") + f"规则: {old!r} -> {new!r}")
+        self._clear_fields()
 
     def del_rule(self):
         for iid in self.tree.selection():
             r = self.rules.pop(int(iid))
-            self._log(f"已删除：{r['old']!r}")
+            self._log(f"已删除: {r['old']!r}")
             break
         self._after_dirty = True
         self._refresh_rules()
         self._render_all()
+        self._clear_fields()
 
     def clear_rules(self):
         self.rules = []
@@ -922,6 +929,7 @@ class PdfEditorApp(tk.Tk):
         self._refresh_rules()
         self._render_all()
         self._log("清单已清空")
+        self._clear_fields()
 
     def _refresh_rules(self):
         self.tree.delete(*self.tree.get_children())
@@ -942,7 +950,7 @@ class PdfEditorApp(tk.Tk):
 
     def auto_calibrate(self):
         if self.orig is None:
-            messagebox.showinfo(APP_TITLE, "请先打开 PDF。")
+            messagebox.showinfo(APP_TITLE, "请先打开 PDF.")
             return
         ruled = {r["old"] for r in self.rules}
         cand = None
@@ -950,20 +958,20 @@ class PdfEditorApp(tk.Tk):
             if text.strip() and text not in ruled and (cand is None or len(text) > len(cand[1])):
                 cand = (rect, text, font, size)
         if not cand:
-            messagebox.showinfo(APP_TITLE, "没有可用于标定的文字。")
+            messagebox.showinfo(APP_TITLE, "没有可用于标定的文字.")
             return
         rect, text, font, size = cand
         try:
             bw = self._calibrate(rect, text, font, size)
         except Exception as e:
-            self._log(f"标定失败：{e}")
+            self._log(f"标定失败: {e}")
             return
         self.bold_stroke = bw
         for r in self.rules:
             r["bold_stroke"] = bw
         self._after_dirty = True
         self._render_all()
-        self._log(f"自动标定完成：bold_stroke = {bw}（用 {text!r} 校准）")
+        self._log(f'自动标定完成: bold_stroke = {bw} (用 {text!r} 校准)')
 
     def _calibrate(self, rect, text, font, size):
         font_file = core.ensure_ttf(core.find_system_font(font))
@@ -1003,10 +1011,10 @@ class PdfEditorApp(tk.Tk):
 
     def save_as(self):
         if self.orig is None:
-            messagebox.showinfo(APP_TITLE, "请先打开 PDF。")
+            messagebox.showinfo(APP_TITLE, "请先打开 PDF.")
             return
         if not self.rules:
-            messagebox.showinfo(APP_TITLE, "还没有任何修改规则。")
+            messagebox.showinfo(APP_TITLE, "还没有任何修改规则.")
             return
         out = filedialog.asksaveasfilename(
             defaultextension=".pdf", filetypes=[("PDF", "*.pdf")],
@@ -1017,15 +1025,15 @@ class PdfEditorApp(tk.Tk):
             work = self._build_working()
             core.finalize(work, out, self.orig.metadata)
         except Exception as e:
-            messagebox.showerror(APP_TITLE, f"保存失败：{e}")
+            messagebox.showerror(APP_TITLE, f"保存失败: {e}")
             return
-        self._log(f"已保存：{out}")
-        messagebox.showinfo(APP_TITLE, f"已保存：\n{out}")
+        self._log(f"已保存: {out}")
+        messagebox.showinfo(APP_TITLE, f"已保存:\n{out}")
 
     # ================= config =================
     def export_config(self):
         if not self.rules:
-            messagebox.showinfo(APP_TITLE, "清单为空。")
+            messagebox.showinfo(APP_TITLE, "清单为空.")
             return
         path = filedialog.asksaveasfilename(defaultextension=".json",
                                             filetypes=[("JSON", "*.json")], initialfile="rules.json")
@@ -1042,7 +1050,7 @@ class PdfEditorApp(tk.Tk):
         }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, ensure_ascii=False, indent=2)
-        self._log(f"已导出 config：{path}")
+        self._log(f"已导出 config: {path}")
 
     def import_config(self):
         path = filedialog.askopenfilename(title="选择 config.json",
@@ -1053,7 +1061,7 @@ class PdfEditorApp(tk.Tk):
             with open(path, encoding="utf-8") as f:
                 cfg = json.load(f)
         except Exception as e:
-            messagebox.showerror(APP_TITLE, f"读取失败：{e}")
+            messagebox.showerror(APP_TITLE, f"读取失败: {e}")
             return
         self.rules = [r for r in cfg.get("replacements", []) if isinstance(r, dict) and r.get("old")]
         if cfg.get("bold_stroke"):
@@ -1065,7 +1073,7 @@ class PdfEditorApp(tk.Tk):
         self._after_dirty = True
         self._refresh_rules()
         self._render_all()
-        self._log(f"已导入 {len(self.rules)} 条规则：{path}")
+        self._log(f"已导入 {len(self.rules)} 条规则: {path}")
 
 
 def main():
