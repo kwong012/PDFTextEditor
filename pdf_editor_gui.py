@@ -33,7 +33,10 @@ ZOOM_MIN, ZOOM_MAX = 0.2, 5.0
 TILE_MARGIN = 0.5          # 缓冲边 = 视口尺寸的 50%
 RENDER_DEBOUNCE_MS = 40
 
-STEPS = "① 点左侧预览里的文字  ② 填「替换为」  ③ 点「添加到清单」  ④ 点「另存为」"
+STEPS = ("① 点左侧预览里的文字\n"
+         "② 填「替换为」\n"
+         "③ 点「添加到清单」\n"
+         "④ 点「另存为」导出")
 
 HELP_TEXT = f"""PDFTextEditor · 使用说明
 
@@ -819,7 +822,7 @@ class PdfEditorApp(tk.Tk):
         self._highlight(rect)
         self._update_add_state()
         self.e_new.focus_set()
-        self._set_hint(f"已选中「{text}」→ 输入新文字后按回车或点「添加到清单」")
+        self._set_hint(f"已选中「{text}」→ 填「替换为」后按回车")
         self._log(f"选中：{text!r}（字体 {font or '?'}，{size:.1f}pt）")
         if self.e_new.get().strip():
             self._enable_after()
@@ -901,7 +904,7 @@ class PdfEditorApp(tk.Tk):
         self._enable_after()
         self._render_all()
         self._log(("已更新" if replaced else "已添加") + f"规则：{old!r} -> {new!r}")
-        self._set_hint("已加入清单。可继续点选下一处，或点「另存为…」导出。")
+        self._set_hint("已加入清单（左侧已更新）。可继续点选下一处。")
         self._update_add_state()
 
     def del_rule(self):
