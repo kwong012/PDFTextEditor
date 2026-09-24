@@ -135,18 +135,19 @@ GUI 的「导出 config / 导入 config」与 CLI 使用**同一套格式**，�
 
 ## 打包成 exe
 
-推荐在项目内的**虚拟环境**里打包，避免影响全局 Python：
+推荐在项目内的**虚拟环境**里打包，避免影响全局 Python。
+构建环境与打包产物统一放在 `worktemp/`（已被 .gitignore 忽略，不随仓库分发）：
 
 ```powershell
 # 1) 建虚拟环境并安装依赖（只需一次）
-python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt pyinstaller
+python -m venv worktemp\.venv
+.\worktemp\.venv\Scripts\python.exe -m pip install -r requirements.txt pyinstaller
 
 # 2) 打包
 powershell -ExecutionPolicy Bypass -File build_exe.ps1
 ```
 
-`build_exe.ps1` 会自动优先使用 `.venv`（没有则退回全局 python）。
+`build_exe.ps1` 会依次找 `worktemp\.venv`、`.venv`（都没有则退回全局 python）。
 产物在 `dist\PDFTextEditor.exe`；加 `-Console` 参数可保留控制台窗口便于看报错。
 首次运行会在 `%LOCALAPPDATA%\PDFTextEditor` 生成字体缓存，不依赖 exe 所在目录可写。
 
@@ -170,8 +171,11 @@ PDFTextEditor/
 └── README.md
 ```
 
-> 图标由临时区的 `make_icon.py`（Pillow 生成，未随仓库分发）产出；
+> 图标由 `worktemp/icon/make_icon.py`（Pillow 生成，不随仓库分发）产出；
 > 日常使用只需 `assets/` 里的成品。
+>
+> 构建环境与打包中间产物都放在 `worktemp/`（`.venv/`、`pyinstaller/`、`icon/`），
+> 已被 `.gitignore` 忽略，不会进入仓库。
 
 **字体**：下拉列出本机实际可用的 20+ 种中文字体（宋黑楷仿/雅黑/正黑/等线/幼圆/隶书/华文系列/方正系列…），
 也可点「…」浏览任意 `.ttf/.ttc/.otf`；修改 PDF 时会按原字体名自动匹配同款系统字体。

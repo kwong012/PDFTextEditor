@@ -3,8 +3,9 @@
 #
 # Prefers the project-local virtual environment .venv; falls back to global python.
 # Recommended setup:
-#   python -m venv .venv
-#   .\.venv\Scripts\python.exe -m pip install -r requirements.txt pyinstaller
+#   python -m venv worktemp\.venv
+#   .\worktemp\.venv\Scripts\python.exe -m pip install -r requirements.txt pyinstaller
+# (.venv in the project root also works.)
 param(
     [string]$Name = "PDFTextEditor",
     [switch]$Console          # keep a console window (useful to see errors)
@@ -14,12 +15,17 @@ $ErrorActionPreference = "Stop"
 Set-Location -Path $PSScriptRoot
 
 # --- pick interpreter ---
-$Py = Join-Path $PSScriptRoot ".venv\Scripts\python.exe"
-if (Test-Path $Py) {
+$candidates = @(
+    (Join-Path $PSScriptRoot "worktemp\.venv\Scripts\python.exe"),
+    (Join-Path $PSScriptRoot ".venv\Scripts\python.exe")
+)
+$Py = $null
+foreach ($c in $candidates) { if (Test-Path $c) { $Py = $c; break } }
+if ($Py) {
     Write-Host "==> using venv: $Py"
 } else {
     $Py = "python"
-    Write-Host "==> no .venv found, using global python (create .venv for isolation)"
+    Write-Host "==> no .venv found, using global python (see README for isolated venv)"
 }
 
 Write-Host "==> checking PyInstaller ..."
