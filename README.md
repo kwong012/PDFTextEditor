@@ -13,15 +13,16 @@
 
 ---
 
-## 下载使用（便携版）
+## 下载使用
 
-从 [Releases](../../releases) 下载 `PDFTextEditor-Portable-<版本>.zip`，解压到任意位置，
-双击 `PDFTextEditor.exe` 就能用。**不需要安装、不需要管理员权限、不需要装 Python**；
+从 [Releases](../../releases) 下载 `PDFTextEditor-Portable-<版本>.zip`，
+解压到任意位置，
+双击 `PDFTextEditor.exe` 就能用。
 「卸载」＝把解压出来的文件夹删掉。
 
 - 系统要求：**64 位 Windows 10 及以上**
-- 别放在 `C:\Program Files` 这类需要管理员权限的目录（否则字体缓存写不进去）
-- 首次运行若弹「Windows 已保护你的电脑」，点「更多信息 → 仍要运行」（程序未做数字签名）
+- 别放在 `C:\Program Files` 这类需要管理员权限的目录，否则字体缓存写不进去
+- 首次运行若弹「Windows 已保护你的电脑」，点「更多信息 → 仍要运行」
 - 解压后目录里有 `使用说明.txt`；首次修改文字会在 `data\` 生成字体缓存，可随时删除
 
 > 想从源码运行、或自己重新出包，见下面的「源码运行」与「打包exe」。
@@ -42,7 +43,7 @@ pip install -r requirements.txt
 python pdf_editor_gui.py
 ```
 
-**使用**（界面右上角「帮助」里有说明）：
+**使用**，界面右上角「帮助」里有说明：
 
 1. **打开 PDF**；
 2. 在左侧「原图」里**点一下要修改的文字**，它会高亮，并自动带出字体/字号/左边框；
