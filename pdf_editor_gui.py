@@ -25,6 +25,10 @@ import numpy as np
 import pdf_edit_core as core
 
 APP_TITLE = "PDFTextEditor"
+
+# 字体：界面统一中文字体；标题用粗体着重
+UI_FONT = ("Microsoft YaHei UI", 9)
+UI_FONT_BOLD = ("Microsoft YaHei UI", 9, "bold")
 ZOOM_MIN, ZOOM_MAX = 0.2, 5.0
 TILE_MARGIN = 0.5          # 缓冲边 = 视口尺寸的 50%
 RENDER_DEBOUNCE_MS = 40
@@ -146,6 +150,7 @@ class PdfEditorApp(tk.Tk):
         self.show_after = tk.BooleanVar(value=False)
         self.font_choices = core.list_available_fonts()   # 本机可用字体（覆盖面广）
 
+        self._apply_styles()
         self._build_ui()
         self._set_hint(STEPS)
         self._log("就绪。请先点「打开 PDF」。第一次用请看「帮助」。")
@@ -155,6 +160,13 @@ class PdfEditorApp(tk.Tk):
             self.load_pdf(initial)
 
     # ================= UI =================
+    def _apply_styles(self):
+        """各级标题着重显示：分组标题、表头、面板标签用粗体；界面统一中文字体。"""
+        style = ttk.Style(self)
+        style.configure(".", font=UI_FONT)
+        style.configure("TLabelframe.Label", font=UI_FONT_BOLD)
+        style.configure("Treeview.Heading", font=UI_FONT_BOLD)
+
     def _build_ui(self):
         bar = ttk.Frame(self, padding=4)
         bar.pack(side="top", fill="x")
@@ -219,13 +231,13 @@ class PdfEditorApp(tk.Tk):
         self.paned.grid(row=0, column=0, sticky="nsew")
 
         f_before = ttk.Frame(self.paned)
-        ttk.Label(f_before, text="原图 · 点这里选文字", foreground="#0a6").pack(side="top", anchor="w", padx=4)
+        ttk.Label(f_before, text="原图 · 点这里选文字", foreground="#0a6", font=UI_FONT_BOLD).pack(side="top", anchor="w", padx=4)
         self.canvas = tk.Canvas(f_before, background="#3b3b3b", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self.paned.add(f_before, stretch="always", minsize=280)
 
         self.f_after = ttk.Frame(self.paned)
-        ttk.Label(self.f_after, text="改后 · 只读预览", foreground="#c60").pack(side="top", anchor="w", padx=4)
+        ttk.Label(self.f_after, text="改后 · 只读预览", foreground="#c60", font=UI_FONT_BOLD).pack(side="top", anchor="w", padx=4)
         self.canvas_after = tk.Canvas(self.f_after, background="#3b3b3b", highlightthickness=0)
         self.canvas_after.pack(fill="both", expand=True)
 
