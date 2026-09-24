@@ -128,7 +128,7 @@ class PdfEditorApp(tk.Tk):
         super().__init__()
         self.title(APP_TITLE)
         try:
-            self.iconbitmap(resource_path("icon.ico"))
+            self.iconbitmap(resource_path(os.path.join("assets", "icon.ico")))
         except Exception:
             pass
         self.geometry("1320x860")

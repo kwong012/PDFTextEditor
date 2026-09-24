@@ -161,13 +161,17 @@ PDFTextEditor/
 ├── pdf_editor_gui.py    图形界面入口
 ├── config.example.json  配置模板
 ├── build_exe.ps1        打包脚本（含 --icon）
-├── icon.svg             图标矢量源
-├── icon.png / icon.ico  图标位图（512 / 多尺寸）
-├── icon_preview.png     图标自检预览
-├── make_icon.py         图标生成脚本
+├── assets/              图标资源
+│   ├── icon.svg         矢量源
+│   ├── icon.png         512×512 位图
+│   ├── icon.ico         多尺寸 ICO（打包/窗口图标用）
+│   └── icon_preview.png 自检预览
 ├── requirements.txt
 └── README.md
 ```
+
+> 图标由临时区的 `make_icon.py`（Pillow 生成，未随仓库分发）产出；
+> 日常使用只需 `assets/` 里的成品。
 
 **字体**：下拉列出本机实际可用的 20+ 种中文字体（宋黑楷仿/雅黑/正黑/等线/幼圆/隶书/华文系列/方正系列…），
 也可点「…」浏览任意 `.ttf/.ttc/.otf`；修改 PDF 时会按原字体名自动匹配同款系统字体。
