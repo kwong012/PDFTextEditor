@@ -42,6 +42,8 @@ Write-Host "==> building ($mode) ..."
     --hidden-import fontTools.ttLib `
     --hidden-import numpy `
     --collect-all pymupdf `
+    --icon icon.ico `
+    --add-data "icon.ico;." `
     pdf_editor_gui.py
 
 Write-Host ""

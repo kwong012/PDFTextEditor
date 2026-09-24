@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="PDFTextEditor">
+  <title>PDFTextEditor</title>
+
+  <!--
+    Design: a folded-corner document whose lower-right side fuses into a pen.
+    The pen body uses the same deep green as the paper so the two shapes read
+    as one solid silhouette (good at 16x16); white is used for the folded
+    corner, the barrel highlight and the nib, so the pen stays legible where
+    it overlaps the page.
+    Colors: #0E6B4F (primary) + #FFFFFF (accent), transparent background.
+  -->
+  <defs>
+    <!-- document silhouette, reused as a clip so the pen outline only shows
+         over the page (that is the "overlap" cue) -->
+    <clipPath id="docClip">
+      <path d="M154 66 L296 66 L396 166 L396 412
+               A34 34 0 0 1 362 446 L154 446
+               A34 34 0 0 1 120 412 L120 100
+               A34 34 0 0 1 154 66 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- 1. document (rounded sheet with the top-right corner cut off) -->
+  <path d="M154 66 L296 66 L396 166 L396 412
+           A34 34 0 0 1 362 446 L154 446
+           A34 34 0 0 1 120 412 L120 100
+           A34 34 0 0 1 154 66 Z"
+        fill="#0E6B4F"/>
+
+  <!-- 2. folded flap (white), sitting inside the cut corner -->
+  <path d="M296 66 L396 166 L296 166 Z" fill="#FFFFFF"/>
+
+  <!-- 3. pen outline, clipped to the page -> white separation only on overlap -->
+  <g clip-path="url(#docClip)" fill="none" stroke="#FFFFFF"
+     stroke-width="12" stroke-linejoin="round" stroke-linecap="round">
+    <polygon points="238,126 422,310 478,414 374,358 190,174"/>
+    <circle cx="214" cy="150" r="40"/>
+  </g>
+
+  <!-- 4. pen body: same green as the page, so it fuses with the document -->
+  <g fill="#0E6B4F">
+    <polygon points="238,126 422,310 478,414 374,358 190,174"/>
+    <circle cx="214" cy="150" r="34"/>
+  </g>
+
+  <!-- 5. nib base + barrel highlight (white) -->
+  <g stroke="#FFFFFF" stroke-linecap="round" fill="none">
+    <line x1="422" y1="310" x2="374" y2="358" stroke-width="12"/>
+    <line x1="230" y1="150" x2="398" y2="318" stroke-width="9"/>
+  </g>
+</svg>

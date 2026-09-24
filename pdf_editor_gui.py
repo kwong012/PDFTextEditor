@@ -101,6 +101,12 @@ A：不会。程序始终从原文件重新生成，只有点「另存为…」�
 """
 
 
+def resource_path(rel: str) -> str:
+    """兼容源码运行与 PyInstaller 打包（_MEIPASS）的资源路径。"""
+    base = getattr(sys, "_MEIPASS", None) or os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, rel)
+
+
 def enable_dpi_awareness():
     if sys.platform == "win32":
         try:
@@ -114,6 +120,10 @@ class PdfEditorApp(tk.Tk):
     def __init__(self, initial=None):
         super().__init__()
         self.title(APP_TITLE)
+        try:
+            self.iconbitmap(resource_path("icon.ico"))
+        except Exception:
+            pass
         self.geometry("1320x860")
         self.minsize(1000, 640)
 
