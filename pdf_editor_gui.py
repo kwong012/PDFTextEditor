@@ -2,13 +2,13 @@
 """
 pdf_editor_gui —— PDF 文字修改器（Tkinter 图形界面）
 
-性能要点：预览只渲染"当前可见区域 + 缓冲边"（clip 渲染），不整页渲染；
-滚动/缩放后对未覆盖区域做防抖重绘，因此高倍缩放也不卡。
+左侧 PDF 直接显示"改后"结果，右栏加入清单后自动刷新；勾选「对照原图」可切回原图。
+预览只渲染"可见区域 + 缓冲边"，高倍缩放也流畅。
 
 交互：
-· 鼠标滚轮 = 上下滚动；Ctrl+滚轮 = 缩放（以鼠标位置为锚点）
-· 勾选「对比预览」自动缩放到合适大小；选中文字并输入替换内容会自动开启对比
-· 帮助为悬浮窗口；各面板之间分隔条可拖动调整宽高
+· 鼠标滚轮 = 上下滚动；Shift+滚轮 = 横向；Ctrl+滚轮 = 缩放（锚定鼠标）
+· 点左侧文字选中片段 -> 填「替换为」-> 添加到清单 -> 左侧自动更新
+帮助为悬浮窗口；各面板分隔条可拖动调整宽高。
 依赖：PyMuPDF、fontTools、numpy（见 requirements.txt）
 """
 from __future__ import annotations
@@ -27,30 +27,29 @@ import pdf_edit_core as core
 APP_TITLE = "PDF 文字修改器"
 ZOOM_MIN, ZOOM_MAX = 0.2, 5.0
 FONT_CHOICES = [(p, label) for p, label in core.FONT_CHOICES]
-TILE_MARGIN = 0.5          # 缓冲边 = 视口尺寸的 50%
+TILE_MARGIN = 0.5
 RENDER_DEBOUNCE_MS = 40
 
-STEPS = "① 点左侧预览里的文字  ② 填「替换为」  ③ 点「添加到清单」  ④ 点「另存为」"
+STEPS = "① 点左侧预览里的文字  ② 填「替换为」  ③ 点「添加到清单」（左侧自动更新）  ④ 点「另存为」"
 
 HELP_TEXT = f"""PDF 文字修改器 · 使用说明
 
 ────────────────────────────
 【四步上手】
 1. 点「打开 PDF」，选择要改的 PDF（必须是电子文本 PDF，文字可选中的）。
-2. 在左侧「原图」里点一下要修改的那段文字，它会高亮，并自动带出字体、字号、左边框。
+2. 在左侧里点一下要修改的那段文字，它会高亮，并自动带出字体、字号、左边框。
 3. 在右侧「替换为」里输入新文字；需要时调整字体 / 字号 / 对齐 / 范围；
-   然后点「添加到清单」。可以重复 2~3 步加多条。
+   然后点「添加到清单」——**左侧立即显示改后的效果**。可重复 2~3 步加多条。
 4. 点「另存为…」导出新 PDF。
 
-提示：选中文字并开始输入替换内容后，会**自动开启对比预览**并缩放到合适大小，
-      左侧并排显示「原图」和「改后」，两边缩放、滚动同步。
+想对照原文件长什么样，勾选工具栏的「对照原图」（单画布切换，不分屏）。
 
 ────────────────────────────
 【缩放与滚动】
 · 鼠标滚轮           = 上下滚动
 · Ctrl + 鼠标滚轮    = 缩放（以鼠标所在位置为中心）
 · Shift + 鼠标滚轮   = 左右滚动
-· 拖动「缩放」滑块 / 百分比输入框回车 / ＋ － 按钮
+· 拖动「缩放」滑块 / 百分比输入框回车 / ＋ － 按钮 / 「适应窗口」
 · 快捷键：Ctrl+0 复位 100%，Ctrl+= 放大，Ctrl+- 缩小
 · 按住鼠标中键拖动可平移；也可用滚动条
 
@@ -58,10 +57,9 @@ HELP_TEXT = f"""PDF 文字修改器 · 使用说明
 【调整界面布局】
 各面板之间的分隔条都能用鼠标拖动：
 · 左（PDF 预览）↔ 右（操作面板）：拖宽度
-· 「原图 ↔ 改后预览」：拖宽度
 · 右侧「编辑 ↔ 修改清单」：拖高度
 · 底部「日志」栏：拖高度（整窗通栏，左右占满）
-（每次启动使用默认布局，不做记忆。）
+各面板设有最小尺寸，拖到极限也不会把「字号」「左边框x」等控件压没。
 
 把 PDF 路径作为参数传给程序可直接打开：
     python pdf_editor_gui.py "D:\\某文件.pdf"
@@ -69,7 +67,7 @@ HELP_TEXT = f"""PDF 文字修改器 · 使用说明
 
 ────────────────────────────
 【各控件说明】
-· 原文        ：从预览里点选出来的，只读。
+· 原文        ：点选出来的原始文字，只读。
 · 替换为      ：要改成的新文字。
 · 字体/字号   ：默认按原片段的字体/字号自动填好，一般不用改。
 · 对齐        ：
@@ -79,12 +77,15 @@ HELP_TEXT = f"""PDF 文字修改器 · 使用说明
 · 范围        ：
     - 所有相同文本：该文字在文档里出现几次就全改（例如上下两份相同的表）。
     - 仅选中这一处：只改你点的这一处。
-· 添加/更新   ：把当前设置加进「修改清单」；同一处的重复添加会覆盖。
+· 添加/更新   ：加进「修改清单」并立即刷新左侧；同一处的重复添加会覆盖。
 · 自动标定加粗：改完之后如果字看起来偏粗/偏细，点一下自动校准描边宽度。
 · 导入/导出 config：与命令行版共用同一份配置文件，便于复用与批量处理。
 
 ────────────────────────────
 【常见问题】
+Q：左侧看不到改动？
+A：确认点了「添加到清单」；若还勾着「对照原图」会一直显示原图，取消勾选即可。
+
 Q：为什么改完字变粗或变细？
 A：原文件的"加粗"常是用描边模拟的。点「自动标定加粗」重新校准即可。
 
@@ -95,7 +96,7 @@ Q：点不到文字 / 选中不了？
 A：该 PDF 可能是扫描件（没有文字层），本工具不适用。
 
 Q：改错了想撤销？
-A：在「修改清单」里选中那条点「删除选中」，或点「清空」重新来。
+A：在「修改清单」里选中那条点「删除选中」，或点「清空」；左侧会随之刷新。
 
 Q：会不会把原文件改坏？
 A：不会。程序始终从原文件重新生成，只有点「另存为…」时才写出新文件。
@@ -120,8 +121,8 @@ class PdfEditorApp(tk.Tk):
 
         self.src_path = None
         self.orig = None
-        self._after_doc = None
-        self._after_dirty = True
+        self._work_doc = None          # 原文件 + 规则 的结果
+        self._work_dirty = True
         self.page_no = 0
         self.zoom = 1.2
         self.rules = []
@@ -134,7 +135,7 @@ class PdfEditorApp(tk.Tk):
         self._sel_bbox = None
         self._updating = False
         self._pan = None
-        self.show_after = tk.BooleanVar(value=False)
+        self.show_original = tk.BooleanVar(value=False)
 
         self._build_ui()
         self._set_hint(STEPS)
@@ -160,8 +161,8 @@ class PdfEditorApp(tk.Tk):
         ttk.Button(bar, text="导入 config", command=self.import_config).pack(side="left")
         ttk.Button(bar, text="导出 config", command=self.export_config).pack(side="left")
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
-        ttk.Checkbutton(bar, text="对比预览", variable=self.show_after,
-                        command=self._on_toggle_after).pack(side="left")
+        ttk.Checkbutton(bar, text="对照原图", variable=self.show_original,
+                        command=self._on_show_original).pack(side="left")
         ttk.Button(bar, text="适应窗口", command=self.autofit).pack(side="left", padx=(6, 0))
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
         ttk.Button(bar, text="另存为…", command=self.save_as).pack(side="left")
@@ -204,40 +205,30 @@ class PdfEditorApp(tk.Tk):
         body.rowconfigure(0, weight=1)
         body.columnconfigure(0, weight=1)
 
-        self.paned = tk.PanedWindow(body, orient="horizontal", sashwidth=6, sashrelief="raised",
-                                    background="#d0d0d0", bd=0, opaqueresize=False)
-        self.paned.grid(row=0, column=0, sticky="nsew")
-
-        f_before = ttk.Frame(self.paned)
-        ttk.Label(f_before, text="原图 · 点这里选文字", foreground="#0a6").pack(side="top", anchor="w", padx=4)
+        f_before = ttk.Frame(body)
+        f_before.grid(row=0, column=0, sticky="nsew")
+        ttk.Label(f_before, text="预览 · 点这里选文字", foreground="#0a6").pack(side="top", anchor="w", padx=4)
         self.canvas = tk.Canvas(f_before, background="#3b3b3b", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
-        self.paned.add(f_before, stretch="always", minsize=280)
-
-        self.f_after = ttk.Frame(self.paned)
-        ttk.Label(self.f_after, text="改后 · 只读预览", foreground="#c60").pack(side="top", anchor="w", padx=4)
-        self.canvas_after = tk.Canvas(self.f_after, background="#3b3b3b", highlightthickness=0)
-        self.canvas_after.pack(fill="both", expand=True)
 
         self.vbar = ttk.Scrollbar(body, orient="vertical", command=self._yview)
         self.hbar = ttk.Scrollbar(body, orient="horizontal", command=self._xview)
         self.vbar.grid(row=0, column=1, sticky="ns")
         self.hbar.grid(row=1, column=0, sticky="ew")
-        for c in (self.canvas, self.canvas_after):
-            c.configure(yscrollcommand=self._yscroll_set, xscrollcommand=self._xscroll_set)
-            c.bind("<MouseWheel>", self._on_wheel_scroll)
-            c.bind("<Shift-MouseWheel>", self._on_wheel_hscroll)
-            c.bind("<Control-MouseWheel>", self._on_wheel_zoom)
-            c.bind("<ButtonPress-2>", lambda e, cc=c: self._pan_start(e, cc))
-            c.bind("<B2-Motion>", lambda e, cc=c: self._pan_move(e, cc))
-            c.bind("<Configure>", lambda e: self._schedule_render())
+        self.canvas.configure(yscrollcommand=self._yscroll_set, xscrollcommand=self._xscroll_set)
+        self.canvas.bind("<MouseWheel>", self._on_wheel_scroll)
+        self.canvas.bind("<Shift-MouseWheel>", self._on_wheel_hscroll)
+        self.canvas.bind("<Control-MouseWheel>", self._on_wheel_zoom)
+        self.canvas.bind("<ButtonPress-2>", lambda e: self._pan_start(e, self.canvas))
+        self.canvas.bind("<B2-Motion>", lambda e: self._pan_move(e, self.canvas))
+        self.canvas.bind("<Configure>", lambda e: self._schedule_render())
         self.canvas.bind("<Button-1>", self.on_canvas_click)
         self.bind("<Control-Key-0>", lambda e: self.set_zoom(1.0))
         self.bind("<Control-plus>", lambda e: self.set_zoom(self.zoom * 1.25))
         self.bind("<Control-equal>", lambda e: self.set_zoom(self.zoom * 1.25))
         self.bind("<Control-minus>", lambda e: self.set_zoom(self.zoom / 1.25))
 
-        # ---- 右：竖向可拖（编辑 | 修改清单 | 日志） ----
+        # ---- 右：竖向可拖（编辑 | 修改清单） ----
         right = ttk.Frame(outer, padding=6)
         self.right_frame = right
         outer.add(right, stretch="never", minsize=330, width=440)
@@ -255,7 +246,7 @@ class PdfEditorApp(tk.Tk):
         self._build_rules_pane(pane2)
         self.right_paned.add(pane2, stretch="always", minsize=110)
 
-        # 日志：整窗底部通栏，可上下拖高度
+        # 日志：整窗底部通栏
         logpane = ttk.Frame(content, padding=(6, 2))
         self._build_log_pane(logpane)
         content.add(logpane, stretch="never", minsize=70, height=150)
@@ -275,7 +266,7 @@ class PdfEditorApp(tk.Tk):
         self.e_new = ttk.Entry(edit, width=34)
         self.e_new.grid(row=1, column=1, columnspan=2, sticky="we", pady=2)
         self.e_new.bind("<Return>", lambda e: self.add_rule())
-        self.e_new.bind("<KeyRelease>", lambda e: self._on_new_text())
+        self.e_new.bind("<KeyRelease>", lambda e: self._update_add_state())
 
         ttk.Label(edit, text="字体").grid(row=2, column=0, sticky="w", pady=2)
         self.cb_font = ttk.Combobox(edit, width=18, state="readonly",
@@ -357,14 +348,12 @@ class PdfEditorApp(tk.Tk):
             self.update_idletasks()
         except tk.TclError:
             return
-        # 右栏最小宽度：取编辑表单请求宽度 + 边距
         try:
             need_w = max(self._pane_edit.winfo_reqwidth(),
                          self.right_paned.winfo_reqwidth()) + 30
             self.outer.paneconfigure(self.right_frame, minsize=need_w)
         except tk.TclError:
             pass
-        # 右栏两块：编辑表单不裁切；清单留基本高度
         panes = self.right_paned.panes()
         if len(panes) >= 2:
             try:
@@ -385,8 +374,8 @@ class PdfEditorApp(tk.Tk):
         win = tk.Toplevel(self)
         self._help_win = win
         win.title("帮助 · " + APP_TITLE)
-        win.geometry("560x640")
-        win.transient(self)          # 悬浮于主窗口之上
+        win.geometry("600x660")
+        win.transient(self)
         txt = tk.Text(win, wrap="word", padx=10, pady=8)
         sb = ttk.Scrollbar(win, orient="vertical", command=txt.yview)
         txt.configure(yscrollcommand=sb.set)
@@ -436,8 +425,8 @@ class PdfEditorApp(tk.Tk):
         self.src_path = path
         self.page_no = 0
         self.rules = []
-        self._after_dirty = True
-        self._after_doc = None
+        self._work_dirty = True
+        self._work_doc = None
         self._span_cache.clear()
         self._tiles.clear()
         self._sel_bbox = None
@@ -474,15 +463,29 @@ class PdfEditorApp(tk.Tk):
             self.page_spans = self._span_cache[pno]
         return self._span_cache[pno]
 
+    def _active_doc(self):
+        """当前该显示的文档：改后（有规则且未勾选"对照原图"）或原图。"""
+        if self.show_original.get() or not self.rules:
+            return self.orig
+        if self._work_dirty or self._work_doc is None:
+            try:
+                self._work_doc = self._build_working()
+                self._work_dirty = False
+            except Exception as e:
+                self._log(f"生成改后预览失败：{e}")
+                self._work_doc = None
+                return self.orig
+        return self._work_doc
+
     def _set_scrollregion(self):
-        if self.orig is None:
+        doc = self._active_doc()
+        if doc is None:
             return
-        page = self.orig[self.page_no]
+        page = doc[self.page_no]
         sr = (0, 0, int(page.rect.width * self.zoom), int(page.rect.height * self.zoom))
         last = getattr(self, "_last_sr", None)
         if sr != last:
-            for c in self._canvases():
-                c.configure(scrollregion=sr)
+            self.canvas.configure(scrollregion=sr)
             self._last_sr = sr
 
     def _visible_pts(self, canvas):
@@ -497,12 +500,15 @@ class PdfEditorApp(tk.Tk):
         except tk.TclError:
             return tk.PhotoImage(data=pm.tobytes("png"))
 
-    def _render_canvas(self, canvas, doc):
+    def _render_canvas(self):
+        doc = self._active_doc()
+        if doc is None:
+            return
         page = doc[self.page_no]
         pw, ph = page.rect.width, page.rect.height
-        vis, w, h = self._visible_pts(canvas)
+        vis, w, h = self._visible_pts(self.canvas)
         if w < 50 or h < 50:
-            clip = fitz.Rect(0, 0, pw, ph)      # 尺寸还没算出来时整页兜底
+            clip = fitz.Rect(0, 0, pw, ph)
         else:
             mx = vis.width * TILE_MARGIN
             my = vis.height * TILE_MARGIN
@@ -511,59 +517,38 @@ class PdfEditorApp(tk.Tk):
         pm = page.get_pixmap(matrix=fitz.Matrix(self.zoom, self.zoom), clip=clip)
         img = self._make_photo(pm)
         x, y = clip.x0 * self.zoom, clip.y0 * self.zoom
-        item = self._img_items.get(canvas)
+        item = self._img_items.get(self.canvas)
         if item is not None:
             try:
-                canvas.itemconfigure(item, image=img)
-                canvas.coords(item, x, y)
+                self.canvas.itemconfigure(item, image=img)
+                self.canvas.coords(item, x, y)
             except tk.TclError:
                 item = None
         if item is None:
-            item = canvas.create_image(x, y, anchor="nw", image=img, tags="page")
-            self._img_items[canvas] = item
-        canvas.tag_lower(item)          # 图始终在最底层，避免盖住选区高亮
-        canvas.delete("stale")
-        canvas.image = img
-        self._tiles[canvas] = (self.zoom, clip)
+            item = self.canvas.create_image(x, y, anchor="nw", image=img, tags="page")
+            self._img_items[self.canvas] = item
+        self.canvas.tag_lower(item)
+        self.canvas.image = img
+        self._tiles[self.canvas] = (self.zoom, clip)
 
-    def _covered(self, canvas):
-        t = self._tiles.get(canvas)
+    def _covered(self):
+        t = self._tiles.get(self.canvas)
         if not t:
             return False
         z, clip = t
         if abs(z - self.zoom) > 1e-6:
             return False
-        vis, w, h = self._visible_pts(canvas)
+        vis, w, h = self._visible_pts(self.canvas)
         if w < 50 or h < 50:
             return False
         return (vis.x0 >= clip.x0 - 1 and vis.y0 >= clip.y0 - 1
                 and vis.x1 <= clip.x1 + 1 and vis.y1 <= clip.y1 + 1)
 
-    def _ensure_after_doc(self):
-        if self.orig is None or not self.rules:
-            self._after_doc = None
-            return
-        if self._after_dirty or self._after_doc is None:
-            try:
-                self._after_doc = self._build_working()
-                self._after_dirty = False
-            except Exception as e:
-                self._log(f"生成预览失败：{e}")
-                self._after_doc = None
-
     def _render_all(self):
         if self.orig is None:
             return
         self._set_scrollregion()
-        self._render_canvas(self.canvas, self.orig)
-        if self.show_after.get():
-            self._ensure_after_doc()
-            if self._after_doc is not None:
-                self._render_canvas(self.canvas_after, self._after_doc)
-            else:
-                self.canvas_after.delete("all")
-                self._tiles.pop(self.canvas_after, None)
-                self._img_items.pop(self.canvas_after, None)
+        self._render_canvas()
         if self._sel_bbox is not None:
             self._highlight(self._sel_bbox)
 
@@ -582,19 +567,17 @@ class PdfEditorApp(tk.Tk):
 
     # ================= 缩放 / 滚动 =================
     def _page(self):
-        return self.orig[self.page_no]
+        return self._active_doc()[self.page_no]
 
     def autofit(self):
         if self.orig is None:
             return
         self.update_idletasks()
-        page = self._page()
-        n = len(self.paned.panes()) or 1
-        avail_w = self.paned.winfo_width() / n - 40
-        avail_h = self.paned.winfo_height() - 40
-        if avail_w < 60 or avail_h < 60:
+        w = self.canvas.winfo_width(); h = self.canvas.winfo_height()
+        if w < 60 or h < 60:
             return
-        z = min(avail_w / page.rect.width, avail_h / page.rect.height)
+        page = self.orig[self.page_no]
+        z = min((w - 20) / page.rect.width, (h - 20) / page.rect.height)
         z = min(max(z, ZOOM_MIN), ZOOM_MAX)
         self._tiles.clear()
         self.set_zoom(z, pivot=None, force=True)
@@ -616,7 +599,6 @@ class PdfEditorApp(tk.Tk):
         self.e_zoom.delete(0, "end")
         self.e_zoom.insert(0, f"{new * 100:.0f}")
         self._updating = False
-        # 先更新 scrollregion 并定位，再按新视口渲染，避免出现空白
         self._last_sr = None
         self._set_scrollregion()
         page = self._page()
@@ -624,7 +606,6 @@ class PdfEditorApp(tk.Tk):
         ch = page.rect.height * new or 1
         self.canvas.xview_moveto(max(0.0, fx * new - sx) / cw)
         self.canvas.yview_moveto(max(0.0, fy * new - sy) / ch)
-        # 校正一次（消除取整/浮点误差），确保锚点严格停在鼠标处
         try:
             self.update_idletasks()
             dxx = self.canvas.canvasx(sx) - fx * new
@@ -635,7 +616,6 @@ class PdfEditorApp(tk.Tk):
                 self.canvas.yview_moveto(max(0.0, self.canvas.canvasy(0) - dyy) / ch)
         except tk.TclError:
             pass
-        self._sync_from(self.canvas)
         self._tiles.clear()
         self._render_all()
 
@@ -665,8 +645,7 @@ class PdfEditorApp(tk.Tk):
         return "break"
 
     def _on_wheel_zoom(self, event):
-        canvas = event.widget
-        pivot = (event.x, event.y, canvas.canvasx(event.x), canvas.canvasy(event.y))
+        pivot = (event.x, event.y, self.canvas.canvasx(event.x), self.canvas.canvasy(event.y))
         factor = 1.15 if event.delta > 0 else 1 / 1.15
         self.set_zoom(self.zoom * factor, pivot=pivot)
         return "break"
@@ -677,35 +656,17 @@ class PdfEditorApp(tk.Tk):
     def _xscroll_set(self, lo, hi):
         self.hbar.set(lo, hi)
 
-    def _canvases(self):
-        if self.show_after.get():
-            return (self.canvas, self.canvas_after)
-        return (self.canvas,)
-
     def _yview(self, *args):
-        for c in self._canvases():
-            c.yview(*args)
+        self.canvas.yview(*args)
         self._after_scroll()
 
     def _xview(self, *args):
-        for c in self._canvases():
-            c.xview(*args)
+        self.canvas.xview(*args)
         self._after_scroll()
 
     def _after_scroll(self):
-        for c in self._canvases():
-            if not self._covered(c):
-                self._schedule_render()
-                return
-
-    def _sync_from(self, src):
-        xv, yv = src.xview(), src.yview()
-        for c in self._canvases():
-            if c is not src:
-                c.xview_moveto(xv[0])
-                c.yview_moveto(yv[0])
-        self.vbar.set(*yv)
-        self.hbar.set(*xv)
+        if not self._covered():
+            self._schedule_render()
 
     def _pan_start(self, event, canvas):
         self._pan = (event.x, event.y)
@@ -713,38 +674,12 @@ class PdfEditorApp(tk.Tk):
 
     def _pan_move(self, event, canvas):
         canvas.scan_dragto(event.x, event.y, gain=1)
-        self._sync_from(canvas)
         self._after_scroll()
 
-    def _on_toggle_after(self):
-        self._toggle_after(autofit=True)
-
-    def _toggle_after(self, autofit=False):
-        try:
-            panes = [str(p) for p in self.paned.panes()]
-            if self.show_after.get():
-                if str(self.f_after) not in panes:
-                    self.paned.add(self.f_after, stretch="always", minsize=280)
-            else:
-                if str(self.f_after) in panes:
-                    self.paned.forget(self.f_after)
-                self._tiles.pop(self.canvas_after, None)
-                self._img_items.pop(self.canvas_after, None)
-                self.canvas_after.delete("all")
-        except tk.TclError:
-            pass
+    def _on_show_original(self):
         self._tiles.clear()
         self._last_sr = None
-        if autofit:
-            self.autofit()
-        else:
-            self._render_all()
-        self._sync_from(self.canvas)
-
-    def _enable_after(self):
-        if not self.show_after.get():
-            self.show_after.set(True)
-            self._toggle_after(autofit=True)
+        self._render_all()
 
     # ================= 画布交互 =================
     def on_canvas_click(self, event):
@@ -778,16 +713,9 @@ class PdfEditorApp(tk.Tk):
         self.e_new.focus_set()
         self._set_hint(f"已选中「{text}」→ 输入新文字后按回车或点「添加到清单」")
         self._log(f"选中：{text!r}（字体 {font or '?'}，{size:.1f}pt）")
-        if self.e_new.get().strip():
-            self._enable_after()
-
-    def _on_new_text(self):
-        self._update_add_state()
-        if self.e_old.get().strip() and self.e_new.get().strip():
-            self._enable_after()
 
     def _nearest_left_border(self, rect):
-        page = self._page()
+        page = self.orig[self.page_no]
         best = None
         for d in page.get_drawings():
             for it in d.get("items", []):
@@ -853,12 +781,13 @@ class PdfEditorApp(tk.Tk):
                 break
         if not replaced:
             self.rules.append(rule)
-        self._after_dirty = True
+        self._work_dirty = True
         self._refresh_rules()
-        self._enable_after()
+        self.show_original.set(False)
+        self._tiles.clear()
         self._render_all()
-        self._log(("已更新" if replaced else "已添加") + f"规则：{old!r} -> {new!r}")
-        self._set_hint("已加入清单。可继续点选下一处，或点「另存为…」导出。")
+        self._log(("已更新" if replaced else "已添加") + f"规则：{old!r} -> {new!r}（左侧已更新）")
+        self._set_hint("已加入清单，左侧已更新。可继续点选下一处，或点「另存为…」导出。")
         self._update_add_state()
 
     def del_rule(self):
@@ -866,14 +795,16 @@ class PdfEditorApp(tk.Tk):
             r = self.rules.pop(int(iid))
             self._log(f"已删除：{r['old']!r}")
             break
-        self._after_dirty = True
+        self._work_dirty = True
         self._refresh_rules()
+        self._tiles.clear()
         self._render_all()
 
     def clear_rules(self):
         self.rules = []
-        self._after_dirty = True
+        self._work_dirty = True
         self._refresh_rules()
+        self._tiles.clear()
         self._render_all()
         self._log("清单已清空")
 
@@ -915,7 +846,8 @@ class PdfEditorApp(tk.Tk):
         self.bold_stroke = bw
         for r in self.rules:
             r["bold_stroke"] = bw
-        self._after_dirty = True
+        self._work_dirty = True
+        self._tiles.clear()
         self._render_all()
         self._log(f"自动标定完成：bold_stroke = {bw}（用 {text!r} 校准）")
 
@@ -1016,7 +948,8 @@ class PdfEditorApp(tk.Tk):
             src = cfg["src"] if os.path.isabs(cfg["src"]) else os.path.join(os.path.dirname(path), cfg["src"])
             if os.path.exists(src):
                 self.load_pdf(src)
-        self._after_dirty = True
+        self._work_dirty = True
+        self._tiles.clear()
         self._refresh_rules()
         self._render_all()
         self._log(f"已导入 {len(self.rules)} 条规则：{path}")
