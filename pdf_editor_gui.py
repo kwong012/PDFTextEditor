@@ -721,13 +721,16 @@ class PdfEditorApp(tk.Tk):
 
     def _toggle_after(self, autofit=False):
         try:
+            panes = [str(p) for p in self.paned.panes()]
             if self.show_after.get():
-                if self.f_after not in self.paned.panes():
+                if str(self.f_after) not in panes:
                     self.paned.add(self.f_after, stretch="always", minsize=280)
             else:
-                if self.f_after in self.paned.panes():
+                if str(self.f_after) in panes:
                     self.paned.forget(self.f_after)
                 self._tiles.pop(self.canvas_after, None)
+                self._img_items.pop(self.canvas_after, None)
+                self.canvas_after.delete("all")
         except tk.TclError:
             pass
         self._tiles.clear()
