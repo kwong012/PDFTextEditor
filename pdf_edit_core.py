@@ -15,21 +15,90 @@ import os
 import fitz
 
 DEFAULT_FONT = r"C:\Windows\Fonts\simsun.ttc"
-FONT_CHOICES = [
-    (r"C:\Windows\Fonts\simsun.ttc", "宋体 SimSun"),
-    (r"C:\Windows\Fonts\simhei.ttf", "黑体 SimHei"),
-    (r"C:\Windows\Fonts\simkai.ttf", "楷体 KaiTi"),
-    (r"C:\Windows\Fonts\simfang.ttf", "仿宋 FangSong"),
+
+# 候选字体（覆盖面尽量广；运行时用 list_available_fonts() 过滤出实际存在的）
+CJK_FONT_CANDIDATES = [
+    (r"C:\Windows\Fonts\simsun.ttc",   "宋体 SimSun"),
+    (r"C:\Windows\Fonts\simhei.ttf",   "黑体 SimHei"),
+    (r"C:\Windows\Fonts\simkai.ttf",   "楷体 KaiTi"),
+    (r"C:\Windows\Fonts\simfang.ttf",  "仿宋 FangSong"),
+    (r"C:\Windows\Fonts\msyh.ttc",     "微软雅黑 Microsoft YaHei"),
+    (r"C:\Windows\Fonts\msyhbd.ttc",   "微软雅黑 粗 YaHei Bold"),
+    (r"C:\Windows\Fonts\msyhl.ttc",    "微软雅黑 细 YaHei Light"),
+    (r"C:\Windows\Fonts\msjh.ttc",     "微软正黑体 JhengHei"),
+    (r"C:\Windows\Fonts\msjhbd.ttc",   "微软正黑体 粗 JhengHei Bold"),
+    (r"C:\Windows\Fonts\Deng.ttf",     "等线 DengXian"),
+    (r"C:\Windows\Fonts\Dengb.ttf",    "等线 粗 DengXian Bold"),
+    (r"C:\Windows\Fonts\Dengl.ttf",    "等线 细 DengXian Light"),
+    (r"C:\Windows\Fonts\simyou.ttf",   "幼圆 YouYuan"),
+    (r"C:\Windows\Fonts\SIMLI.TTF",    "隶书 LiSu"),
+    (r"C:\Windows\Fonts\STSONG.TTF",   "华文宋体 STSong"),
+    (r"C:\Windows\Fonts\STZHONGS.TTF", "华文中宋 STZhongsong"),
+    (r"C:\Windows\Fonts\STKAITI.TTF",  "华文楷体 STKaiti"),
+    (r"C:\Windows\Fonts\STFANGSO.TTF", "华文仿宋 STFangsong"),
+    (r"C:\Windows\Fonts\STXIHEI.TTF",  "华文细黑 STXihei"),
+    (r"C:\Windows\Fonts\STXINGKA.TTF", "华文行楷 STXingkai"),
+    (r"C:\Windows\Fonts\STXINWEI.TTF", "华文新魏 STXinwei"),
+    (r"C:\Windows\Fonts\STLITI.TTF",   "华文隶书 STLiti"),
+    (r"C:\Windows\Fonts\STHUPO.TTF",   "华文琥珀 STHupo"),
+    (r"C:\Windows\Fonts\STCAIYUN.TTF", "华文彩云 STCaiyun"),
+    (r"C:\Windows\Fonts\FZSTK.TTF",    "方正舒体 FZShuTi"),
+    (r"C:\Windows\Fonts\FZYTK.TTF",    "方正姚体 FZYaoti"),
+    (r"C:\Windows\Fonts\SimsunExtG.ttf", "宋体-扩展 SimSun-ExtG"),
 ]
-# PDF 字体名 -> 系统字体文件
+
+# 兼容旧名（未过滤）
+FONT_CHOICES = CJK_FONT_CANDIDATES
+
+
+def list_available_fonts():
+    """返回本机实际存在的候选字体 [(路径, 名称)]；宋体兜底。"""
+    out = [(p, label) for p, label in CJK_FONT_CANDIDATES if os.path.exists(p)]
+    if not any(os.path.normcase(p) == os.path.normcase(DEFAULT_FONT) for p, _ in out):
+        out.insert(0, (DEFAULT_FONT, "宋体 SimSun"))
+    return out
+
+
+# PDF 内字体名（小写、去空格与逗号）-> 系统字体文件
 FONT_ALIASES = {
-    "simsun": DEFAULT_FONT, "宋体": DEFAULT_FONT, "nsimsun": DEFAULT_FONT,
+    # 宋体 / 黑体 / 楷体 / 仿宋
+    "simsun": r"C:\Windows\Fonts\simsun.ttc", "宋体": r"C:\Windows\Fonts\simsun.ttc",
+    "nsimsun": r"C:\Windows\Fonts\simsun.ttc", "newsun": r"C:\Windows\Fonts\simsun.ttc",
+    "simsun-extb": r"C:\Windows\Fonts\simsunb.ttf",
+    "simsunextg": r"C:\Windows\Fonts\SimsunExtG.ttf",
     "simhei": r"C:\Windows\Fonts\simhei.ttf", "黑体": r"C:\Windows\Fonts\simhei.ttf",
     "simkai": r"C:\Windows\Fonts\simkai.ttf", "楷体": r"C:\Windows\Fonts\simkai.ttf",
-    "kaiti": r"C:\Windows\Fonts\simkai.ttf",
+    "kaiti": r"C:\Windows\Fonts\simkai.ttf", "楷": r"C:\Windows\Fonts\simkai.ttf",
     "simfang": r"C:\Windows\Fonts\simfang.ttf", "仿宋": r"C:\Windows\Fonts\simfang.ttf",
     "fangsong": r"C:\Windows\Fonts\simfang.ttf",
+    # 雅黑 / 正黑 / 等线
     "msyh": r"C:\Windows\Fonts\msyh.ttc", "微软雅黑": r"C:\Windows\Fonts\msyh.ttc",
+    "microsoftyahei": r"C:\Windows\Fonts\msyh.ttc", "yahei": r"C:\Windows\Fonts\msyh.ttc",
+    "msjh": r"C:\Windows\Fonts\msjh.ttc", "微软正黑": r"C:\Windows\Fonts\msjh.ttc",
+    "microsoftjhenghei": r"C:\Windows\Fonts\msjh.ttc", "jhenghei": r"C:\Windows\Fonts\msjh.ttc",
+    "dengxian": r"C:\Windows\Fonts\Deng.ttf", "等线": r"C:\Windows\Fonts\Deng.ttf",
+    # 其它中文
+    "youyuan": r"C:\Windows\Fonts\simyou.ttf", "幼圆": r"C:\Windows\Fonts\simyou.ttf",
+    "lisu": r"C:\Windows\Fonts\SIMLI.TTF", "隶书": r"C:\Windows\Fonts\SIMLI.TTF",
+    "stsong": r"C:\Windows\Fonts\STSONG.TTF", "华文宋体": r"C:\Windows\Fonts\STSONG.TTF",
+    "stzhongsong": r"C:\Windows\Fonts\STZHONGS.TTF", "华文中宋": r"C:\Windows\Fonts\STZHONGS.TTF",
+    "stkaiti": r"C:\Windows\Fonts\STKAITI.TTF", "华文楷体": r"C:\Windows\Fonts\STKAITI.TTF",
+    "stfangsong": r"C:\Windows\Fonts\STFANGSO.TTF", "华文仿宋": r"C:\Windows\Fonts\STFANGSO.TTF",
+    "stxihei": r"C:\Windows\Fonts\STXIHEI.TTF", "华文细黑": r"C:\Windows\Fonts\STXIHEI.TTF",
+    "stxingkai": r"C:\Windows\Fonts\STXINGKA.TTF", "华文行楷": r"C:\Windows\Fonts\STXINGKA.TTF",
+    "stxinwei": r"C:\Windows\Fonts\STXINWEI.TTF", "华文新魏": r"C:\Windows\Fonts\STXINWEI.TTF",
+    "stliti": r"C:\Windows\Fonts\STLITI.TTF", "华文隶书": r"C:\Windows\Fonts\STLITI.TTF",
+    "sthupo": r"C:\Windows\Fonts\STHUPO.TTF", "华文琥珀": r"C:\Windows\Fonts\STHUPO.TTF",
+    "stcaiyun": r"C:\Windows\Fonts\STCAIYUN.TTF", "华文彩云": r"C:\Windows\Fonts\STCAIYUN.TTF",
+    "fzshuti": r"C:\Windows\Fonts\FZSTK.TTF", "方正舒体": r"C:\Windows\Fonts\FZSTK.TTF",
+    "fzyaoti": r"C:\Windows\Fonts\FZYTK.TTF", "方正姚体": r"C:\Windows\Fonts\FZYTK.TTF",
+    # 常见西文（含中英混排）
+    "arial": r"C:\Windows\Fonts\arial.ttf", "timesnewroman": r"C:\Windows\Fonts\times.ttf",
+    "times": r"C:\Windows\Fonts\times.ttf", "calibri": r"C:\Windows\Fonts\calibri.ttf",
+    "couriernew": r"C:\Windows\Fonts\cour.ttf", "cour": r"C:\Windows\Fonts\cour.ttf",
+    "tahoma": r"C:\Windows\Fonts\tahoma.ttf", "verdana": r"C:\Windows\Fonts\verdana.ttf",
+    "segoeui": r"C:\Windows\Fonts\segoeui.ttf", "georgia": r"C:\Windows\Fonts\georgia.ttf",
+    "cambria": r"C:\Windows\Fonts\cambria.ttc", "consola": r"C:\Windows\Fonts\consola.ttf",
 }
 PDF_REDACT = dict(
     images=fitz.PDF_REDACT_IMAGE_NONE,
@@ -45,12 +114,28 @@ def user_cache_dir(app: str = "PDFTextEditor") -> str:
     return d
 
 
+def _norm_font_name(s: str | None) -> str:
+    s = (s or "").lower()
+    for ch in (" ", ",", "-", "_", "\t"):
+        s = s.replace(ch, "")
+    return s
+
+
+_FONT_ALIASES_NORM = None
+
+
 def find_system_font(pdf_font_name: str | None) -> str:
-    """据 PDF 内字体名猜系统字体文件，找不到就退回宋体。"""
-    n = (pdf_font_name or "").lower().replace(" ", "").replace(",", "")
-    for key, path in FONT_ALIASES.items():
-        if key in n:
-            return path
+    """据 PDF 内字体名猜系统字体文件（按最长匹配键优先），找不到退回宋体。"""
+    global _FONT_ALIASES_NORM
+    if _FONT_ALIASES_NORM is None:
+        _FONT_ALIASES_NORM = {_norm_font_name(k): v for k, v in FONT_ALIASES.items()}
+    n = _norm_font_name(pdf_font_name)
+    best_key = None
+    for key in _FONT_ALIASES_NORM:
+        if key and key in n and (best_key is None or len(key) > len(best_key)):
+            best_key = key
+    if best_key:
+        return _FONT_ALIASES_NORM[best_key]
     return DEFAULT_FONT
 
 

@@ -26,7 +26,6 @@ import pdf_edit_core as core
 
 APP_TITLE = "PDFTextEditor"
 ZOOM_MIN, ZOOM_MAX = 0.2, 5.0
-FONT_CHOICES = [(p, label) for p, label in core.FONT_CHOICES]
 TILE_MARGIN = 0.5          # 缓冲边 = 视口尺寸的 50%
 RENDER_DEBOUNCE_MS = 40
 
@@ -135,6 +134,7 @@ class PdfEditorApp(tk.Tk):
         self._updating = False
         self._pan = None
         self.show_after = tk.BooleanVar(value=False)
+        self.font_choices = core.list_available_fonts()   # 本机可用字体（覆盖面广）
 
         self._build_ui()
         self._set_hint(STEPS)
@@ -278,14 +278,15 @@ class PdfEditorApp(tk.Tk):
         self.e_new.bind("<KeyRelease>", lambda e: self._on_new_text())
 
         ttk.Label(edit, text="字体").grid(row=2, column=0, sticky="w", pady=2)
-        self.cb_font = ttk.Combobox(edit, width=18, state="readonly",
-                                    values=[label for _, label in FONT_CHOICES])
+        fontbox = ttk.Frame(edit)
+        fontbox.grid(row=2, column=1, columnspan=2, sticky="we", pady=2)
+        self.cb_font = ttk.Combobox(fontbox, width=22, state="readonly",
+                                    values=[label for _, label in self.font_choices])
         self.cb_font.current(0)
-        self.cb_font.grid(row=2, column=1, sticky="w", pady=2)
-        sizebox = ttk.Frame(edit)
-        sizebox.grid(row=2, column=2, sticky="e")
-        ttk.Label(sizebox, text="字号").pack(side="left")
-        self.e_size = ttk.Entry(sizebox, width=6)
+        self.cb_font.pack(side="left", fill="x", expand=True)
+        ttk.Button(fontbox, text="…", width=3, command=self._browse_font).pack(side="left", padx=(4, 6))
+        ttk.Label(fontbox, text="字号").pack(side="left")
+        self.e_size = ttk.Entry(fontbox, width=5)
         self.e_size.insert(0, "10")
         self.e_size.pack(side="left", padx=(4, 0))
 
@@ -405,7 +406,24 @@ class PdfEditorApp(tk.Tk):
 
     def _selected_font_path(self):
         idx = self.cb_font.current()
-        return FONT_CHOICES[idx if idx >= 0 else 0][0]
+        return self.font_choices[idx if idx >= 0 else 0][0]
+
+    def _browse_font(self):
+        """选择一个自定义字体文件（.ttf/.ttc/.otf），追加进下拉列表。"""
+        path = filedialog.askopenfilename(
+            title="选择字体文件",
+            filetypes=[("字体文件", "*.ttf *.ttc *.otf"), ("所有文件", "*.*")])
+        if not path:
+            return
+        for i, (p, _l) in enumerate(self.font_choices):
+            if os.path.normcase(p) == os.path.normcase(path):
+                self.cb_font.current(i)
+                return
+        label = f"自定义 {os.path.basename(path)}"
+        self.font_choices.append((path, label))
+        self.cb_font.configure(values=[l for _, l in self.font_choices])
+        self.cb_font.current(len(self.font_choices) - 1)
+        self._log(f"已加入自定义字体：{path}")
 
     def _gap_value(self):
         s = self.cb_gap.get()
@@ -765,7 +783,7 @@ class PdfEditorApp(tk.Tk):
         self.e_old.delete(0, "end"); self.e_old.insert(0, text)
         self.e_size.delete(0, "end"); self.e_size.insert(0, str(int(round(size))))
         sysfont = core.find_system_font(font)
-        for i, (p, _l) in enumerate(FONT_CHOICES):
+        for i, (p, _l) in enumerate(self.font_choices):
             if os.path.normcase(p) == os.path.normcase(sysfont):
                 self.cb_font.current(i)
                 break
