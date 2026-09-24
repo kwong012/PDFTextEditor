@@ -8,6 +8,8 @@
 - **图形界面** `pdf_editor_gui.py`：在预览里点选要改的文字，输入替换内容，所见即所得。
 - **命令行** `edit_pdf.py`：按 `config.json` 批量替换，便于自动化和复用。
 
+![PDFTextEditor 界面：左侧「原图 / 改后」对比预览，右侧编辑与修改清单](assets/screenshot.png)
+
 ---
 
 ## 快速开始
@@ -162,11 +164,12 @@ PDFTextEditor/
 ├── pdf_editor_gui.py    图形界面入口
 ├── config.example.json  配置模板
 ├── build_exe.ps1        打包脚本（含 --icon）
-├── assets/              图标资源
+├── assets/              图标与截图
 │   ├── icon.svg         矢量源
 │   ├── icon.png         512×512 位图
 │   ├── icon.ico         多尺寸 ICO（打包/窗口图标用）
-│   └── icon_preview.png 自检预览
+│   ├── icon_preview.png 自检预览
+│   └── screenshot.png   界面截图（README 用）
 ├── requirements.txt
 └── README.md
 ```

@@ -6,7 +6,6 @@
 > **适用**：Word 等 Office 软件导出的可选中文本 PDF（文字可选中 / 可搜索）。
 > **不适用**：扫描件等图片型 PDF。
 
----
 
 ## 主要特性
 
@@ -19,7 +18,6 @@
 - **收尾处理**：内嵌字体子集化控制体积，保留原 PDF 的元数据与时间戳
 - **可打包**为免安装单文件 `exe`（PyInstaller），双击即用
 
----
 
 ## 使用流程
 
@@ -35,7 +33,7 @@ flowchart LR
 勾选 **对比预览** 可并排查看「原图 / 改后」，两侧缩放与滚动同步；
 鼠标滚轮为滚动、`Ctrl` + 滚轮为缩放（以鼠标位置为中心）、`Shift` + 滚轮横向滚动。
 
----
+
 
 ## 快速上手（图形界面）
 
@@ -45,7 +43,7 @@ flowchart LR
    范围（所有相同文本 / 仅选中这一处），然后点**添加到清单**。
 4. 点**另存为…** 导出新的 PDF。
 
----
+
 
 ## 命令行
 
@@ -75,17 +73,23 @@ python edit_pdf.py --config config.json              # 正式生成
 - `align`：`left` 时从 `left_border_x + left_gap` 起左对齐
 - 图形界面的「导出 config」与命令行**通用**
 
----
+
 
 ## 工作原理
 
 ```mermaid
-flowchart TD
-    S[原 PDF] --> T1[读取每个字符的基点]
-    T1 --> T2[redaction 删除旧字<br/>不填白块]
-    T2 --> T3[逐字重绘新字<br/>复刻描边式加粗]
-    T3 --> T4[字体子集化<br/>保留元数据]
-    T4 --> O[新 PDF]
+flowchart TB
+    subgraph r1[" "]
+      direction LR
+      S[原 PDF] --> T1[读取每个字符的基点] --> T2[redaction 删除旧字<br/>不填白块]
+    end
+    subgraph r2[" "]
+      direction LR
+      T3[逐字重绘新字<br/>复刻描边式加粗] --> T4[字体子集化<br/>保留元数据] --> O[新 PDF]
+    end
+    r1 --> r2
+    style r1 fill:transparent,stroke:none
+    style r2 fill:transparent,stroke:none
 ```
 
 ## 技术要点
@@ -95,7 +99,7 @@ flowchart TD
 - **删除旧字**：使用 redaction **且不填充白块**，避免在部分阅读器中留下可见边框
 - **收尾**：字体子集化 + 保留 `Producer / Creator / 时间戳` 等元数据
 
----
+
 
 ## 运行环境与打包
 
@@ -122,8 +126,6 @@ PDFTextEditor/
 ├── worktemp/            构建与临时产物（已忽略）
 └── README.md
 ```
-
----
 
 ## 说明
 
