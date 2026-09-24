@@ -1,0 +1,38 @@
+{
+  "_说明": "复制为 config.json 后修改。路径可绝对，也可相对本配置文件所在目录。",
+  "_字段": {
+    "font/font_size/bold_stroke": "全局默认，可被单条规则覆盖",
+    "replacements[].scope": "all=替换全部相同文本；single=仅替换 page+bbox 指定的那一处",
+    "replacements[].align": "缺省=按原基点；left=从 left_border_x+left_gap 左对齐",
+    "replacements[].bbox": "single 时用于精确定位，PDF 坐标 [x0,y0,x1,y1]"
+  },
+
+  "src": "input.pdf",
+  "out": "output.pdf",
+
+  "font": "C:\\Windows\\Fonts\\simsun.ttc",
+  "font_name": "simsun",
+  "font_size": 10,
+  "bold_stroke": 0.03,
+
+  "replacements": [
+    { "old": "原文本示例", "new": "新文本示例" },
+    { "old": "2026-01-01", "new": "2026-02-01" },
+    { "old": "姓名占位", "new": "姓名占位改" },
+    {
+      "old": "旧事由示例",
+      "new": "新事由示例",
+      "align": "left",
+      "left_border_x": 100.0,
+      "left_gap": 3.333
+    },
+    {
+      "_示例_仅替换一处": true,
+      "old": "原文片段",
+      "new": "只改这一处",
+      "scope": "single",
+      "page": 0,
+      "bbox": [100.0, 200.0, 160.0, 210.0]
+    }
+  ]
+}
