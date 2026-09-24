@@ -1,0 +1,27 @@
+PDFTextEditor 便携版  @VERSION@
+
+【怎么用】
+1. 把整个 PDFTextEditor 文件夹解压到任意位置（桌面、D 盘、U 盘都行）。
+2. 双击 PDFTextEditor.exe 打开，直接就能用。
+3. 不需要安装，不需要管理员权限，不需要装 Python。
+
+【重要】
+不要放在 C:\Program Files 这类需要管理员权限的目录，
+否则字体缓存可能写不进去。放在桌面或其他自己的目录最省事。
+
+【卸载】
+直接删除整个 PDFTextEditor 文件夹即可，不留任何残留。
+
+【文件夹里有什么】
+PDFTextEditor.exe   程序本体
+_internal\          运行库（不要删、不要改）
+portable.flag       便携版标记（缓存会写在本文件夹内）
+data\               字体缓存（用到的字体转成 ttf，约 10-20 MB/个），可随时删除
+使用说明.txt        本文件
+
+【首次运行提示】
+本程序未做数字签名，Windows 可能弹出「Windows 已保护你的电脑」，
+点「更多信息」→「仍要运行」即可。
+
+【系统要求】
+64 位 Windows 10 及以上

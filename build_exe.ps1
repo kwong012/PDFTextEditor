@@ -1,15 +1,19 @@
-# Build PDFTextEditor into a single portable exe.
-# Usage:  powershell -ExecutionPolicy Bypass -File build_exe.ps1 [-Console]
+# Build PDFTextEditor.
+# Usage:  powershell -ExecutionPolicy Bypass -File build_exe.ps1 [-Onefile] [-Console]
 #
 # Interpreter: prefers the project-local venv ".venv"; falls back to global python.
 #   python -m venv .venv
 #   .\.venv\Scripts\python.exe -m pip install -r requirements.txt pyinstaller
 #
-# Build intermediates AND the exe are written under "worktemp\pyinstaller"
+# Default layout is --onedir: start-up is much faster (nothing is unpacked to %TEMP%)
+# and the output is what build_portable.ps1 packages. Pass -Onefile for a single exe.
+#
+# Build intermediates AND the output are written under "worktemp\pyinstaller"
 # (which is git-ignored), so the project root stays clean.
 param(
     [string]$Name = "PDFTextEditor",
-    [switch]$Console          # keep a console window (useful to see errors)
+    [switch]$Console,         # keep a console window (useful to see errors)
+    [switch]$Onefile          # single-file exe instead of the default onedir
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,10 +42,11 @@ Write-Host "==> cleaning previous output ..."
 Remove-Item -Recurse -Force (Join-Path $outBase "build"), (Join-Path $outBase "dist") -ErrorAction SilentlyContinue
 Remove-Item -Force (Join-Path $outBase "$Name.spec") -ErrorAction SilentlyContinue
 
-$mode = if ($Console) { "--console" } else { "--windowed" }
-Write-Host "==> building ($mode) ..."
+$mode   = if ($Console) { "--console" } else { "--windowed" }
+$layout = if ($Onefile) { "--onefile" } else { "--onedir" }
+Write-Host "==> building ($layout $mode) ..."
 & $Py -m PyInstaller `
-    --noconfirm --clean --onefile $mode `
+    --noconfirm --clean $layout $mode `
     --name $Name `
     --hidden-import fitz `
     --hidden-import fontTools `
@@ -56,4 +61,8 @@ Write-Host "==> building ($mode) ..."
     pdf_editor_gui.py
 
 Write-Host ""
-Write-Host "done. output: $outBase\dist\$Name.exe"
+if ($Onefile) {
+    Write-Host "done. output: $outBase\dist\$Name.exe"
+} else {
+    Write-Host "done. output: $outBase\dist\$Name\$Name.exe"
+}

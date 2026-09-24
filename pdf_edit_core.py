@@ -12,6 +12,7 @@ pdf_edit_core —— PDF 原位文字替换核心逻辑（CLI 与 GUI 共用）
 from __future__ import annotations
 
 import os
+import sys
 
 import fitz
 
@@ -109,6 +110,18 @@ PDF_REDACT = dict(
 
 
 def user_cache_dir(app: str = "PDFTextEditor") -> str:
+    """字体缓存目录。
+
+    便携版：可执行文件同级放一个 portable.flag，缓存就写进程序自己的
+    文件夹（<程序目录>\\data），保证整份软件不往文件夹外写任何东西；
+    否则按常规写到 %LOCALAPPDATA%\\<app>。
+    """
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+        if os.path.exists(os.path.join(exe_dir, "portable.flag")):
+            d = os.path.join(exe_dir, "data")
+            os.makedirs(d, exist_ok=True)
+            return d
     base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
     d = os.path.join(base, app)
     os.makedirs(d, exist_ok=True)

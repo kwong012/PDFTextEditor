@@ -141,17 +141,42 @@ GUI 的「导出 config / 导入 config」与 CLI 使用**同一套格式**，�
 
 ```powershell
 # 1) 建虚拟环境并安装依赖（只需一次）
-python -m venv .venv
+#    请用 64 位 Python 建 venv（py -0p 可列出本机所有版本）
+py -3.14 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt pyinstaller
 
-# 2) 打包
+# 2) 打包（默认 onedir，启动快）
 powershell -ExecutionPolicy Bypass -File build_exe.ps1
+# 想要单文件版：加 -Onefile   想看报错：加 -Console
 ```
 
+> 分发给别人时请用 **64 位** Python 建 venv（32 位包虽能跑，但有 4 GB 内存上限）。
+> 自查：`.\.venv\Scripts\python.exe -c "import struct;print(struct.calcsize('P')*8)"` 应输出 `64`。
+
 `build_exe.ps1` 会自动优先使用 `.venv`（没有则退回全局 python）。
-打包的**中间产物与 exe 都写到 `worktemp\pyinstaller\`**（已忽略），
-产物路径：`worktemp\pyinstaller\dist\PDFTextEditor.exe`；加 `-Console` 可保留控制台看报错。
-首次运行会在 `%LOCALAPPDATA%\PDFTextEditor` 生成字体缓存，不依赖 exe 所在目录可写。
+打包的**中间产物与输出都写到 `worktemp\pyinstaller\`**（已忽略）：
+
+- 默认 `--onedir` → `worktemp\pyinstaller\dist\PDFTextEditor\PDFTextEditor.exe`
+- 加 `-Onefile` → `worktemp\pyinstaller\dist\PDFTextEditor.exe`
+
+字体缓存位置：程序目录里有 `portable.flag`（便携版）时写在**程序目录的 `data\`**，
+否则写在 `%LOCALAPPDATA%\PDFTextEditor`。
+
+### 便携版（分发给别人）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File build_portable.ps1
+```
+
+一条命令完成：读 `VERSION` → onedir 构建 → 复制到 `worktemp\portable\PDFTextEditor\` →
+放入 `portable.flag` 和 `packaging\使用说明.txt` → 压成
+`worktemp\portable\PDFTextEditor-Portable-<版本>.zip`，并打印大小与 SHA256。
+
+对方拿到 zip 后：解压到任意位置 → 双击 `PDFTextEditor.exe` 即用；
+**不需要安装、不需要管理员权限、不需要装 Python**，「卸载」就是删掉文件夹。
+
+> 不要把解压后的文件夹放到 `C:\Program Files` 这类需要管理员权限的目录，
+> 否则字体缓存写不进去。
 
 ---
 
@@ -163,7 +188,11 @@ PDFTextEditor/
 ├── edit_pdf.py          命令行入口
 ├── pdf_editor_gui.py    图形界面入口
 ├── config.example.json  配置模板
-├── build_exe.ps1        打包脚本（含 --icon）
+├── VERSION              版本号（打包脚本读取）
+├── build_exe.ps1        打包脚本（默认 onedir，含 --icon）
+├── build_portable.ps1   便携版打包（构建 → 标记 → 说明 → zip）
+├── packaging/
+│   └── 使用说明.txt     随便携版一起分发的说明
 ├── assets/              图标与截图
 │   ├── icon.svg         矢量源
 │   ├── icon.png         512×512 位图
@@ -189,3 +218,4 @@ PDFTextEditor/
 - **文件体积暴涨**：确认保存走了 `finalize()`（含 `subset_fonts()`）。
 - **点选不到文字**：该 PDF 可能是扫描件（无文本层），本工具不适用。
 - **左下角预览与最终不一致**：左下角显示的是**原图**；点「预览对比」看改后效果。
+- **便携版字体缓存写不进去**：文件夹被放在了 `C:\Program Files` 这类无写权限的位置，换到桌面或自己的目录即可。
