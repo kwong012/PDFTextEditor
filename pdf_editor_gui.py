@@ -2,10 +2,10 @@
 """
 pdf_editor_gui —— PDF 文字修改器（Tkinter 图形界面）
 
-操作：
-  打开 PDF -> 在预览里点要改的文字 -> 填"替换为" -> 添加到清单 -> 预览对比 -> 另存为
-规则可导入/导出成与 CLI 共用的 config.json（方案 B）。
-依赖：PyMuPDF、fontTools、Pillow、numpy（见 requirements.txt）
+界面：左侧 PDF 预览（可选同窗口分割出「改后」预览），右侧编辑面板 + 帮助。
+缩放：滑块拖动 / 输入框输入百分比 / 鼠标滚轮（Ctrl+滚轮=滚动）/ Ctrl+0 复位。
+规则可导入导出为与 CLI 共用的 config.json。
+依赖：PyMuPDF、fontTools、numpy（见 requirements.txt）
 """
 from __future__ import annotations
 
@@ -21,7 +21,67 @@ import numpy as np
 import pdf_edit_core as core
 
 APP_TITLE = "PDF 文字修改器"
+ZOOM_MIN, ZOOM_MAX = 0.2, 5.0
 FONT_CHOICES = [(p, label) for p, label in core.FONT_CHOICES]
+
+STEPS = "① 点左侧预览里的文字  ② 填「替换为」  ③ 点「添加到清单」  ④ 点「另存为」"
+
+HELP_TEXT = f"""PDF 文字修改器 · 使用说明
+
+────────────────────────────
+【四步上手】
+1. 点「打开 PDF」，选择要改的 PDF（必须是电子文本 PDF，文字可选中的）。
+2. 在左侧「原图」里点一下要修改的那段文字，它会高亮，并自动带出字体、字号、左边框。
+3. 在右侧「替换为」里输入新文字；需要时调整字体 / 字号 / 对齐 / 范围；
+   然后点「添加到清单」。可以重复 2~3 步加多条。
+4. 点「另存为…」导出新 PDF。
+
+提示：分不清"改哪一处/改完什么样"，可勾选工具栏的「对比预览」，
+      左侧会并排显示「原图」和「改后」，两边缩放同步。
+
+────────────────────────────
+【缩放的三种方式】
+· 拖动「缩放」滑块
+· 在百分比输入框里输入数字后回车（例如 180）
+· 鼠标停在预览上滚动滚轮放大缩小；按住 Ctrl 滚轮则改为上下滚动
+· 快捷键：Ctrl+0 复位 100%，Ctrl+= 放大，Ctrl+- 缩小
+· 按住鼠标中键拖动可平移；也可用滚动条
+
+────────────────────────────
+【各控件说明】
+· 原文        ：从预览里点选出来的，只读。
+· 替换为      ：要改成的新文字。
+· 字体/字号   ：默认按原片段的字体/字号自动填好，一般不用改。
+· 对齐        ：
+    - 保持原位  ：新文字沿用原来的位置（默认）。
+    - 左对齐留白：让新文字在单元格里左对齐，并留出「间隙(字宽)」的空白，
+                  常用于新文字比原来长、想和左边框保持距离的情况。
+· 左边框x     ：左对齐时的参照线（点选片段会自动填入该单元格的左边框坐标）。
+· 范围        ：
+    - 所有相同文本：该文字在文档里出现几次就全改（例如上下两份相同的表）。
+    - 仅选中这一处：只改你点的这一处。
+· 添加/更新   ：把当前设置加进「修改清单」；同一处的重复添加会覆盖。
+· 自动标定加粗：改完之后如果字看起来偏粗/偏细，点一下自动校准描边宽度。
+· 导入/导出 config：与命令行版共用同一份配置文件，便于复用与批量处理。
+
+────────────────────────────
+【常见问题】
+Q：为什么改完字变粗或变细？
+A：原文件的"加粗"常是用描边模拟的。点「自动标定加粗」重新校准即可。
+
+Q：为什么导出的文件变小/变大了？
+A：程序会对内嵌字体做子集化处理，体积通常和原文件接近；这是正常的。
+
+Q：点不到文字 / 选中不了？
+A：该 PDF 可能是扫描件（没有文字层），本工具不适用；请改用能生成电子文本的原始文件。
+
+Q：改错了想撤销？
+A：在「修改清单」里选中那条点「删除选中」，或点「清空」重新来。
+   清单改动会即时反映到「对比预览」。
+
+Q：会不会把原文件改坏？
+A：不会。程序始终从原文件重新生成，只有你点「另存为…」时才会写出新文件。
+"""
 
 
 def enable_dpi_awareness():
@@ -37,120 +97,191 @@ class PdfEditorApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title(APP_TITLE)
-        self.geometry("1280x820")
+        self.geometry("1320x860")
+        self.minsize(1000, 640)
 
         self.src_path = None
-        self.orig = None          # 原始文档（用于片段索引）
-        self.working = None       # 应用规则后的文档
+        self.orig = None
+        self._after_doc = None
+        self._after_dirty = True
         self.page_no = 0
-        self.zoom = 1.6
-        self.rules = []           # 规则列表
+        self.zoom = 1.2
+        self.rules = []
         self.bold_stroke = 0.03
-        self.page_spans = []      # 当前页 [(Rect, text, font, size)]
-        self._img = None
+        self.page_spans = []
         self._sel_bbox = None
+        self._updating = False
+        self._pan = None
+        self.show_after = tk.BooleanVar(value=False)
 
         self._build_ui()
-        self._log("就绪。请先「打开 PDF」。")
+        self._set_hint(STEPS)
+        self._log("就绪。请先点「打开 PDF」。第一次用请看右侧「帮助」标签。")
 
-    # ---------- UI ----------
+    # ================= UI =================
     def _build_ui(self):
         bar = ttk.Frame(self, padding=4)
         bar.pack(side="top", fill="x")
         ttk.Button(bar, text="打开 PDF", command=self.open_pdf).pack(side="left")
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
         ttk.Button(bar, text="◀", width=3, command=lambda: self.change_page(-1)).pack(side="left")
-        self.lbl_page = ttk.Label(bar, text="0/0", width=8, anchor="center")
+        self.lbl_page = ttk.Label(bar, text="0/0", width=7, anchor="center")
         self.lbl_page.pack(side="left")
         ttk.Button(bar, text="▶", width=3, command=lambda: self.change_page(1)).pack(side="left")
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
-        ttk.Button(bar, text="－", width=3, command=lambda: self.do_zoom(1/1.25)).pack(side="left")
-        self.lbl_zoom = ttk.Label(bar, text="160%", width=6, anchor="center")
-        self.lbl_zoom.pack(side="left")
-        ttk.Button(bar, text="＋", width=3, command=lambda: self.do_zoom(1.25)).pack(side="left")
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
         ttk.Button(bar, text="自动标定加粗", command=self.auto_calibrate).pack(side="left")
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
         ttk.Button(bar, text="导入 config", command=self.import_config).pack(side="left")
         ttk.Button(bar, text="导出 config", command=self.export_config).pack(side="left")
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
-        ttk.Button(bar, text="预览对比", command=self.preview_compare).pack(side="left")
+        self.cb_after = ttk.Checkbutton(bar, text="对比预览", variable=self.show_after,
+                                        command=self._toggle_after)
+        self.cb_after.pack(side="left")
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
         ttk.Button(bar, text="另存为…", command=self.save_as).pack(side="left")
+        ttk.Button(bar, text="帮助", command=lambda: self._nb.select(self.tab_help)).pack(side="right")
 
-        paned = ttk.Panedwindow(self, orient="horizontal")
-        paned.pack(fill="both", expand=True)
+        outer = ttk.Panedwindow(self, orient="horizontal")
+        outer.pack(fill="both", expand=True)
 
-        # 左：画布
-        left = ttk.Frame(paned)
-        self.canvas = tk.Canvas(left, background="#3b3b3b", highlightthickness=0)
-        vs = ttk.Scrollbar(left, orient="vertical", command=self.canvas.yview)
-        hs = ttk.Scrollbar(left, orient="horizontal", command=self.canvas.xview)
-        self.canvas.configure(yscrollcommand=vs.set, xscrollcommand=hs.set)
-        self.canvas.grid(row=0, column=0, sticky="nsew")
-        vs.grid(row=0, column=1, sticky="ns")
-        hs.grid(row=1, column=0, sticky="ew")
-        left.rowconfigure(0, weight=1)
-        left.columnconfigure(0, weight=1)
+        # ---- 左：缩放条 + 画布 ----
+        left = ttk.Frame(outer)
+        outer.add(left, weight=3)
+
+        zbar = ttk.Frame(left, padding=(6, 4))
+        zbar.pack(side="top", fill="x")
+        ttk.Label(zbar, text="缩放").pack(side="left")
+        self.zoom_var = tk.DoubleVar(value=self.zoom)
+        self.scale = ttk.Scale(zbar, from_=ZOOM_MIN * 100, to=ZOOM_MAX * 100,
+                               orient="horizontal", length=180, variable=self.zoom_var,
+                               command=self._on_slider)
+        self.scale.pack(side="left", padx=(4, 6))
+        self.e_zoom = ttk.Entry(zbar, width=6)
+        self.e_zoom.pack(side="left")
+        ttk.Label(zbar, text="%").pack(side="left", padx=(2, 6))
+        self.e_zoom.bind("<Return>", lambda e: self._apply_zoom_entry())
+        self.e_zoom.bind("<FocusOut>", lambda e: self._apply_zoom_entry())
+        ttk.Button(zbar, text="－", width=3, command=lambda: self.set_zoom(self.zoom / 1.25)).pack(side="left")
+        ttk.Button(zbar, text="＋", width=3, command=lambda: self.set_zoom(self.zoom * 1.25)).pack(side="left")
+        ttk.Label(zbar, text="滚轮缩放 · Ctrl+滚轮滚动 · 中键平移",
+                  foreground="#777").pack(side="left", padx=10)
+
+        body = ttk.Frame(left)
+        body.pack(fill="both", expand=True)
+        body.rowconfigure(0, weight=1)
+        body.columnconfigure(0, weight=1)
+
+        self.paned = ttk.Panedwindow(body, orient="horizontal")
+        self.paned.grid(row=0, column=0, sticky="nsew")
+
+        f_before = ttk.Frame(self.paned)
+        ttk.Label(f_before, text="原图 · 点这里选文字", foreground="#0a6").pack(side="top", anchor="w", padx=4)
+        self.canvas = tk.Canvas(f_before, background="#3b3b3b", highlightthickness=0)
+        self.canvas.pack(fill="both", expand=True)
+        self.paned.add(f_before, weight=1)
+
+        self.f_after = ttk.Frame(self.paned)
+        ttk.Label(self.f_after, text="改后 · 只读预览", foreground="#c60").pack(side="top", anchor="w", padx=4)
+        self.canvas_after = tk.Canvas(self.f_after, background="#3b3b3b", highlightthickness=0)
+        self.canvas_after.pack(fill="both", expand=True)
+
+        self.vbar = ttk.Scrollbar(body, orient="vertical", command=self._yview)
+        self.hbar = ttk.Scrollbar(body, orient="horizontal", command=self._xview)
+        self.vbar.grid(row=0, column=1, sticky="ns")
+        self.hbar.grid(row=1, column=0, sticky="ew")
+        for c in (self.canvas, self.canvas_after):
+            c.configure(yscrollcommand=self._yscroll_set, xscrollcommand=self._xscroll_set)
+            c.bind("<MouseWheel>", self._on_wheel)
+            c.bind("<Control-MouseWheel>", self._on_wheel_scroll)
+            c.bind("<ButtonPress-2>", lambda e, cc=c: self._pan_start(e, cc))
+            c.bind("<B2-Motion>", lambda e, cc=c: self._pan_move(e, cc))
         self.canvas.bind("<Button-1>", self.on_canvas_click)
-        paned.add(left, weight=3)
+        self.bind("<Control-Key-0>", lambda e: self.set_zoom(1.0))
+        self.bind("<Control-plus>", lambda e: self.set_zoom(self.zoom * 1.25))
+        self.bind("<Control-equal>", lambda e: self.set_zoom(self.zoom * 1.25))
+        self.bind("<Control-minus>", lambda e: self.set_zoom(self.zoom / 1.25))
 
-        # 右：面板
-        right = ttk.Frame(paned, padding=6)
-        paned.add(right, weight=2)
+        # ---- 右：Notebook（编辑 / 帮助） + 日志 ----
+        right = ttk.Frame(outer, padding=6)
+        outer.add(right, weight=2)
 
-        edit = ttk.LabelFrame(right, text="编辑选中片段", padding=6)
+        self._nb = ttk.Notebook(right)
+        self._nb.pack(fill="both", expand=True)
+        self.tab_help = ttk.Frame(self._nb)
+        tab_edit = ttk.Frame(self._nb)
+        self._nb.add(tab_edit, text="编辑")
+        self._nb.add(self.tab_help, text="帮助")
+
+        self._build_edit_tab(tab_edit)
+        self._build_help_tab(self.tab_help)
+
+        logf = ttk.LabelFrame(right, text="日志", padding=4)
+        logf.pack(fill="both", expand=False, pady=(6, 0))
+        self.log = tk.Text(logf, height=6, wrap="word")
+        self.log.pack(fill="both", expand=True)
+
+    def _build_edit_tab(self, parent):
+        self.lbl_hint = ttk.Label(parent, text="", foreground="#06c", wraplength=360, justify="left")
+        self.lbl_hint.pack(fill="x", pady=(0, 6))
+
+        edit = ttk.LabelFrame(parent, text="编辑选中片段", padding=6)
         edit.pack(fill="x")
+
         ttk.Label(edit, text="原文").grid(row=0, column=0, sticky="w", pady=2)
         self.e_old = ttk.Entry(edit, width=34)
         self.e_old.grid(row=0, column=1, columnspan=2, sticky="we", pady=2)
+
         ttk.Label(edit, text="替换为").grid(row=1, column=0, sticky="w", pady=2)
         self.e_new = ttk.Entry(edit, width=34)
         self.e_new.grid(row=1, column=1, columnspan=2, sticky="we", pady=2)
+        self.e_new.bind("<Return>", lambda e: self.add_rule())
+        self.e_new.bind("<KeyRelease>", lambda e: self._update_add_state())
 
         ttk.Label(edit, text="字体").grid(row=2, column=0, sticky="w", pady=2)
-        self.cb_font = ttk.Combobox(edit, width=20, state="readonly",
-                                    values=[f"{label}" for _, label in FONT_CHOICES])
+        self.cb_font = ttk.Combobox(edit, width=18, state="readonly",
+                                    values=[label for _, label in FONT_CHOICES])
         self.cb_font.current(0)
         self.cb_font.grid(row=2, column=1, sticky="w", pady=2)
-        ttk.Label(edit, text="字号").grid(row=2, column=2, sticky="e")
-        self.e_size = ttk.Entry(edit, width=6)
+        sizebox = ttk.Frame(edit)
+        sizebox.grid(row=2, column=2, sticky="e")
+        ttk.Label(sizebox, text="字号").pack(side="left")
+        self.e_size = ttk.Entry(sizebox, width=6)
         self.e_size.insert(0, "10")
-        self.e_size.grid(row=2, column=2, sticky="e", pady=2)
-        self.e_size.grid_configure(padx=(0, 40))
+        self.e_size.pack(side="left", padx=(4, 0))
 
         ttk.Label(edit, text="对齐").grid(row=3, column=0, sticky="w", pady=2)
         self.v_align = tk.StringVar(value="match")
-        ttk.Radiobutton(edit, text="保持原位", value="match", variable=self.v_align).grid(row=3, column=1, sticky="w")
-        self.v_gap = tk.StringVar(value="1/3")
-        gapf = ttk.Frame(edit)
-        gapf.grid(row=4, column=1, columnspan=2, sticky="w")
-        ttk.Radiobutton(gapf, text="左对齐留白", value="left", variable=self.v_align).pack(side="left")
-        ttk.Label(gapf, text="间隙(字宽)").pack(side="left", padx=(8, 2))
-        self.cb_gap = ttk.Combobox(gapf, width=6, values=["1/4", "1/3", "1/2", "1"], state="readonly")
+        af = ttk.Frame(edit)
+        af.grid(row=3, column=1, columnspan=2, sticky="w")
+        ttk.Radiobutton(af, text="保持原位", value="match", variable=self.v_align).pack(side="left")
+        ttk.Radiobutton(af, text="左对齐留白", value="left", variable=self.v_align).pack(side="left", padx=(8, 0))
+        ttk.Label(af, text="间隙").pack(side="left", padx=(8, 2))
+        self.cb_gap = ttk.Combobox(af, width=5, values=["1/4", "1/3", "1/2", "1"], state="readonly")
         self.cb_gap.current(1)
         self.cb_gap.pack(side="left")
-        ttk.Label(gapf, text="左边框x").pack(side="left", padx=(8, 2))
-        self.e_border = ttk.Entry(gapf, width=8)
-        self.e_border.pack(side="left")
+        ttk.Label(af, text="字宽").pack(side="left", padx=(2, 8))
+        ttk.Label(af, text="左边框x").pack(side="left")
+        self.e_border = ttk.Entry(af, width=8)
+        self.e_border.pack(side="left", padx=(2, 0))
 
-        ttk.Label(edit, text="范围").grid(row=5, column=0, sticky="w", pady=2)
+        ttk.Label(edit, text="范围").grid(row=4, column=0, sticky="w", pady=2)
         self.v_scope = tk.StringVar(value="all")
         sf = ttk.Frame(edit)
-        sf.grid(row=5, column=1, columnspan=2, sticky="w")
+        sf.grid(row=4, column=1, columnspan=2, sticky="w")
         ttk.Radiobutton(sf, text="所有相同文本", value="all", variable=self.v_scope).pack(side="left")
         ttk.Radiobutton(sf, text="仅选中这一处", value="single", variable=self.v_scope).pack(side="left", padx=(8, 0))
 
         btns = ttk.Frame(edit)
-        btns.grid(row=6, column=0, columnspan=3, sticky="we", pady=(6, 0))
-        ttk.Button(btns, text="添加到清单", command=self.add_rule).pack(side="left")
+        btns.grid(row=5, column=0, columnspan=3, sticky="we", pady=(8, 0))
+        self.btn_add = ttk.Button(btns, text="添加到清单", command=self.add_rule)
+        self.btn_add.pack(side="left")
         ttk.Button(btns, text="取消选择", command=self.clear_selection).pack(side="left", padx=4)
         edit.columnconfigure(1, weight=1)
 
-        lst = ttk.LabelFrame(right, text="修改清单", padding=6)
+        lst = ttk.LabelFrame(parent, text="修改清单", padding=6)
         lst.pack(fill="both", expand=True, pady=(8, 0))
-        cols = ("old", "new", "scope")
-        self.tree = ttk.Treeview(lst, columns=cols, show="headings", height=10)
-        for c, w, t in (("old", 130, "原文"), ("new", 150, "替换为"), ("scope", 60, "范围")):
+        self.tree = ttk.Treeview(lst, columns=("old", "new", "scope"), show="headings", height=9)
+        for c, w, t in (("old", 120, "原文"), ("new", 140, "替换为"), ("scope", 56, "范围")):
             self.tree.heading(c, text=t)
             self.tree.column(c, width=w, anchor="w")
         self.tree.pack(fill="both", expand=True)
@@ -158,22 +289,28 @@ class PdfEditorApp(tk.Tk):
         lb.pack(fill="x", pady=(4, 0))
         ttk.Button(lb, text="删除选中", command=self.del_rule).pack(side="left")
         ttk.Button(lb, text="清空", command=self.clear_rules).pack(side="left", padx=4)
+        ttk.Button(lb, text="另存为…", command=self.save_as).pack(side="right")
 
-        logf = ttk.LabelFrame(right, text="日志", padding=4)
-        logf.pack(fill="both", expand=False, pady=(8, 0))
-        self.log = tk.Text(logf, height=7, wrap="word")
-        self.log.pack(fill="both", expand=True)
+    def _build_help_tab(self, parent):
+        txt = tk.Text(parent, wrap="word", padx=10, pady=8)
+        sb = ttk.Scrollbar(parent, orient="vertical", command=txt.yview)
+        txt.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        txt.pack(side="left", fill="both", expand=True)
+        txt.insert("1.0", HELP_TEXT)
+        txt.configure(state="disabled")
 
-    # ---------- 工具 ----------
+    # ================= 通用辅助 =================
     def _log(self, msg):
         self.log.insert("end", msg + "\n")
         self.log.see("end")
 
+    def _set_hint(self, msg):
+        self.lbl_hint.config(text=msg)
+
     def _selected_font_path(self):
         idx = self.cb_font.current()
-        if idx < 0:
-            idx = 0
-        return FONT_CHOICES[idx][0]
+        return FONT_CHOICES[idx if idx >= 0 else 0][0]
 
     def _gap_value(self):
         s = self.cb_gap.get()
@@ -185,7 +322,11 @@ class PdfEditorApp(tk.Tk):
         except Exception:
             return 1 / 3
 
-    # ---------- 打开/渲染 ----------
+    def _update_add_state(self):
+        state = "normal" if (self.e_old.get().strip() and self.e_new.get().strip()) else "disabled"
+        self.btn_add.config(state=state)
+
+    # ================= 打开 / 渲染 =================
     def open_pdf(self):
         path = filedialog.askopenfilename(title="选择 PDF", filetypes=[("PDF", "*.pdf"), ("所有文件", "*.*")])
         if not path:
@@ -198,35 +339,159 @@ class PdfEditorApp(tk.Tk):
         self.src_path = path
         self.page_no = 0
         self.rules = []
+        self._after_dirty = True
         self._refresh_rules()
         self.title(f"{APP_TITLE} — {os.path.basename(path)}")
         self._log(f"已打开：{path}（{self.orig.page_count} 页）")
+        self._set_hint(STEPS)
         self.render()
 
     def _build_span_index(self, pno):
         spans = []
         for p, page, span, text in core.iter_spans(self.orig):
-            if p != pno:
-                continue
-            if not text.strip():
+            if p != pno or not text.strip():
                 continue
             spans.append((fitz.Rect(span["bbox"]), text, span.get("font", ""), span.get("size", 10)))
         self.page_spans = spans
 
-    def render(self):
+    def _draw_page(self, canvas, doc, tag):
+        page = doc[self.page_no]
+        pm = page.get_pixmap(matrix=fitz.Matrix(self.zoom, self.zoom))
+        img = tk.PhotoImage(data=pm.tobytes("png"))
+        canvas.delete("all")
+        canvas.create_image(0, 0, anchor="nw", image=img)
+        canvas.configure(scrollregion=(0, 0, pm.width, pm.height))
+        canvas.image = img
+        if tag == "before":
+            canvas.delete("sel")
+
+    def _render_before(self):
         if self.orig is None:
             return
         self._build_span_index(self.page_no)
-        page = self.orig[self.page_no]
-        pm = page.get_pixmap(matrix=fitz.Matrix(self.zoom, self.zoom))
-        self._img = tk.PhotoImage(data=pm.tobytes("png"))
-        self.canvas.delete("all")
-        self.canvas.create_image(0, 0, anchor="nw", image=self._img)
-        self.canvas.configure(scrollregion=(0, 0, pm.width, pm.height))
-        self.canvas.create_rectangle(2, 2, pm.width - 2, pm.height - 2, outline="#666")
+        self._draw_page(self.canvas, self.orig, "before")
         self.lbl_page.config(text=f"{self.page_no + 1}/{self.orig.page_count}")
-        self.lbl_zoom.config(text=f"{int(self.zoom * 100)}%")
         self._sel_bbox = None
+
+    def _render_after(self):
+        if not self.show_after.get() or self.orig is None or not self.rules:
+            self.canvas_after.delete("all")
+            return
+        if self._after_dirty or self._after_doc is None:
+            try:
+                self._after_doc = self._build_working()
+                self._after_dirty = False
+            except Exception as e:
+                self._log(f"生成预览失败：{e}")
+                return
+        if self.page_no < self._after_doc.page_count:
+            self._draw_page(self.canvas_after, self._after_doc, "after")
+
+    def render(self):
+        self._render_before()
+        self._render_after()
+        self._sync_from(self.canvas)
+
+    # ================= 缩放 / 滚动 =================
+    def set_zoom(self, new, pivot=None, from_slider=False):
+        new = min(max(float(new), ZOOM_MIN), ZOOM_MAX)
+        if abs(new - self.zoom) < 1e-4:
+            return
+        old = self.zoom
+        if pivot is None:
+            # 默认绕视口中心缩放
+            pivot = (self.canvas.canvasx(max(1, self.canvas.winfo_width()) / 2),
+                     self.canvas.canvasy(max(1, self.canvas.winfo_height()) / 2))
+        # pivot 是"画布内容坐标"下的锚点，缩放后保持该点位置不动
+        self.zoom = new
+        self._updating = True
+        self.zoom_var.set(new * 100)
+        self.e_zoom.delete(0, "end")
+        self.e_zoom.insert(0, f"{new * 100:.0f}")
+        self._updating = False
+        self.render()
+        if pivot is not None:
+            px, py = pivot
+            fx, fy = px / old, py / old
+            cw = self.canvas.bbox("all")[2] or 1
+            ch = self.canvas.bbox("all")[3] or 1
+            self.canvas.xview_moveto(max(0.0, (fx * new - px) / cw))
+            self.canvas.yview_moveto(max(0.0, (fy * new - py) / ch))
+            self._sync_from(self.canvas)
+
+    def _on_slider(self, _v):
+        if self._updating:
+            return
+        self.set_zoom(self.zoom_var.get() / 100.0, from_slider=True)
+
+    def _apply_zoom_entry(self):
+        if self._updating:
+            return
+        s = self.e_zoom.get().strip().rstrip("%")
+        try:
+            self.set_zoom(float(s) / 100.0)
+        except ValueError:
+            self.e_zoom.delete(0, "end")
+            self.e_zoom.insert(0, f"{self.zoom * 100:.0f}")
+
+    def _on_wheel(self, event):
+        canvas = event.widget
+        pivot = (canvas.canvasx(event.x), canvas.canvasy(event.y))
+        factor = 1.15 if event.delta > 0 else 1 / 1.15
+        self.set_zoom(self.zoom * factor, pivot=pivot)
+        return "break"
+
+    def _on_wheel_scroll(self, event):
+        canvas = event.widget
+        delta = -3 if event.delta > 0 else 3
+        self._yview("scroll", delta, "units")
+
+    def _yscroll_set(self, lo, hi):
+        self.vbar.set(lo, hi)
+
+    def _xscroll_set(self, lo, hi):
+        self.hbar.set(lo, hi)
+
+    def _canvases(self):
+        if self.show_after.get():
+            return (self.canvas, self.canvas_after)
+        return (self.canvas,)
+
+    def _yview(self, *args):
+        for c in self._canvases():
+            c.yview(*args)
+
+    def _xview(self, *args):
+        for c in self._canvases():
+            c.xview(*args)
+
+    def _sync_from(self, src):
+        xv, yv = src.xview(), src.yview()
+        for c in self._canvases():
+            if c is not src:
+                c.xview_moveto(xv[0])
+                c.yview_moveto(yv[0])
+        self.vbar.set(*yv)
+        self.hbar.set(*xv)
+
+    def _pan_start(self, event, canvas):
+        self._pan = (event.x, event.y)
+        canvas.scan_mark(event.x, event.y)
+
+    def _pan_move(self, event, canvas):
+        canvas.scan_dragto(event.x, event.y, gain=1)
+        self._sync_from(canvas)
+
+    def _toggle_after(self):
+        try:
+            if self.show_after.get():
+                self.paned.add(self.f_after, weight=1)
+            else:
+                self.paned.forget(self.f_after)
+        except tk.TclError:
+            pass
+        self._render_after()
+        self._sync_from(self.canvas)
 
     def change_page(self, d):
         if self.orig is None:
@@ -236,11 +501,7 @@ class PdfEditorApp(tk.Tk):
             self.page_no = np_
             self.render()
 
-    def do_zoom(self, f):
-        self.zoom = min(max(self.zoom * f, 0.3), 6.0)
-        self.render()
-
-    # ---------- 画布交互 ----------
+    # ================= 画布交互 =================
     def on_canvas_click(self, event):
         if self.orig is None:
             return
@@ -258,7 +519,6 @@ class PdfEditorApp(tk.Tk):
         self._sel_bbox = rect
         self.e_old.delete(0, "end"); self.e_old.insert(0, text)
         self.e_size.delete(0, "end"); self.e_size.insert(0, str(int(round(size))))
-        # 自动匹配字体
         sysfont = core.find_system_font(font)
         for i, (p, _l) in enumerate(FONT_CHOICES):
             if os.path.normcase(p) == os.path.normcase(sysfont):
@@ -269,6 +529,9 @@ class PdfEditorApp(tk.Tk):
         if bx is not None:
             self.e_border.insert(0, f"{bx:.2f}")
         self._highlight(rect)
+        self._update_add_state()
+        self.e_new.focus_set()
+        self._set_hint(f"已选中「{text}」→ 输入新文字后按回车或点「添加到清单」")
         self._log(f"选中：{text!r}（字体 {font or '?'}，{size:.1f}pt）")
 
     def _nearest_left_border(self, rect):
@@ -281,13 +544,11 @@ class PdfEditorApp(tk.Tk):
                     if abs(p1.x - p2.x) < 0.5:
                         y0, y1 = sorted((p1.y, p2.y))
                         if y0 - 1 <= rect.y0 and y1 + 1 >= rect.y1 and rect.x0 - 80 < p1.x <= rect.x0 + 0.5:
-                            if best is None or p1.x > best:
-                                best = p1.x
+                            best = p1.x if best is None else max(best, p1.x)
                 elif it[0] == "re":
                     r = it[1]
                     if r.height > 4 and rect.x0 - 80 < r.x1 <= rect.x0 + 0.5 and r.y0 - 1 <= rect.y0 and r.y1 + 1 >= rect.y1:
-                        if best is None or r.x1 > best:
-                            best = r.x1
+                        best = r.x1 if best is None else max(best, r.x1)
         return best
 
     def _highlight(self, rect):
@@ -299,13 +560,15 @@ class PdfEditorApp(tk.Tk):
     def clear_selection(self):
         self.canvas.delete("sel")
         self._sel_bbox = None
+        self.e_old.delete(0, "end")
+        self._update_add_state()
 
-    # ---------- 规则 ----------
+    # ================= 规则 =================
     def add_rule(self):
         old = self.e_old.get().strip()
         new = self.e_new.get().strip()
         if not old:
-            messagebox.showwarning(APP_TITLE, "请先在预览里点选要修改的文字。")
+            messagebox.showwarning(APP_TITLE, "请先在左侧预览里点选要修改的文字。")
             return
         if not new:
             messagebox.showwarning(APP_TITLE, "请填写「替换为」内容。")
@@ -328,30 +591,39 @@ class PdfEditorApp(tk.Tk):
             if self._sel_bbox is not None:
                 rule["bbox"] = [round(v, 2) for v in (self._sel_bbox.x0, self._sel_bbox.y0,
                                                       self._sel_bbox.x1, self._sel_bbox.y1)]
-        # 同位置/同原文覆盖
         key = (rule["old"], rule.get("page"), tuple(rule.get("bbox", ())) or None)
+        replaced = False
         for i, r in enumerate(self.rules):
             rkey = (r["old"], r.get("page"), tuple(r.get("bbox", ())) or None)
             if rkey == key:
                 self.rules[i] = rule
-                self._refresh_rules()
-                self._log(f"已更新规则：{old!r} -> {new!r}")
-                return
-        self.rules.append(rule)
+                replaced = True
+                break
+        if not replaced:
+            self.rules.append(rule)
+        self._after_dirty = True
         self._refresh_rules()
-        self._log(f"已添加规则：{old!r} -> {new!r}")
+        self._render_after()
+        self._sync_from(self.canvas)
+        self._log(("已更新" if replaced else "已添加") + f"规则：{old!r} -> {new!r}")
+        self._set_hint("已加入清单。可继续点选下一处，或点「另存为…」导出。")
+        self._update_add_state()
 
     def del_rule(self):
         for iid in self.tree.selection():
-            idx = int(iid)
-            r = self.rules.pop(idx)
+            r = self.rules.pop(int(iid))
             self._log(f"已删除：{r['old']!r}")
             break
+        self._after_dirty = True
         self._refresh_rules()
+        self._render_after()
+        self._sync_from(self.canvas)
 
     def clear_rules(self):
         self.rules = []
+        self._after_dirty = True
         self._refresh_rules()
+        self._render_after()
         self._log("清单已清空")
 
     def _refresh_rules(self):
@@ -359,8 +631,9 @@ class PdfEditorApp(tk.Tk):
         for i, r in enumerate(self.rules):
             scope = "仅此处" if r.get("scope") == "single" else "全部"
             self.tree.insert("", "end", iid=str(i), values=(r["old"], r["new"], scope))
+        self._update_add_state()
 
-    # ---------- 文档构建 ----------
+    # ================= 文档构建 =================
     def _build_working(self):
         if self.orig is None:
             raise RuntimeError("未打开 PDF")
@@ -374,27 +647,29 @@ class PdfEditorApp(tk.Tk):
         if self.orig is None:
             messagebox.showinfo(APP_TITLE, "请先打开 PDF。")
             return
-        # 找一段未被修改的最长文字做标定
         ruled = {r["old"] for r in self.rules}
         cand = None
         for rect, text, font, size in self.page_spans:
-            if text.strip() and text not in ruled and len(text) > len((cand or ("",))[1]):
+            if text.strip() and text not in ruled and (cand is None or len(text) > len(cand[1])):
                 cand = (rect, text, font, size)
         if not cand:
             messagebox.showinfo(APP_TITLE, "没有可用于标定的文字。")
             return
         rect, text, font, size = cand
         try:
-            bw = self._calibrate(rect, text, size)
+            bw = self._calibrate(rect, text, font, size)
         except Exception as e:
             self._log(f"标定失败：{e}")
             return
         self.bold_stroke = bw
+        for r in self.rules:
+            r["bold_stroke"] = bw
+        self._after_dirty = True
+        self._render_after()
         self._log(f"自动标定完成：bold_stroke = {bw}（用 {text!r} 校准）")
 
-    def _calibrate(self, rect, text, size):
-        font_file = core.ensure_ttf(core.find_system_font(
-            next((f for r, t, f, s in self.page_spans if t == text), "")),)
+    def _calibrate(self, rect, text, font, size):
+        font_file = core.ensure_ttf(core.find_system_font(font))
         zoom = 6
         clip = fitz.Rect(rect.x0 - 2, rect.y0 - 2, rect.x1 + 2, rect.y1 + 2)
 
@@ -403,16 +678,15 @@ class PdfEditorApp(tk.Tk):
             return np.frombuffer(pm.samples, dtype=np.uint8).reshape(pm.height, pm.width, pm.n)[:, :, 0].astype(int)
 
         ref = gray(self.orig)
-        candidates = [0.02, 0.025, 0.03, 0.035, 0.04]
-        best = (1e9, self.bold_stroke)
         origins = None
         for p, page, span, t in core.iter_spans(self.orig):
-            if p == self.page_no and t == text and fitz.Rect(span["bbox"]).x0 == rect.x0:
+            if p == self.page_no and t == text and abs(fitz.Rect(span["bbox"]).x0 - rect.x0) < 0.01:
                 origins = [tuple(c["origin"]) for c in span["chars"]]
                 break
         if origins is None:
             return self.bold_stroke
-        for bw in candidates:
+        best = (1e9, self.bold_stroke)
+        for bw in (0.02, 0.025, 0.03, 0.035, 0.04):
             doc = fitz.open(self.src_path)
             pg = doc[self.page_no]
             r = fitz.Rect(rect); r.x0 -= .7; r.x1 += .7; r.y0 -= 1.2; r.y1 += 1.2
@@ -430,40 +704,16 @@ class PdfEditorApp(tk.Tk):
                 best = (mean, bw)
         return best[1]
 
-    def preview_compare(self):
-        if self.orig is None or not self.rules:
-            messagebox.showinfo(APP_TITLE, "先打开 PDF 并至少添加一条规则。")
-            return
-        try:
-            work = self._build_working()
-        except Exception as e:
-            messagebox.showerror(APP_TITLE, f"生成失败：{e}")
-            return
-        win = tk.Toplevel(self)
-        win.title("预览对比：左=原图  右=改后")
-        win.geometry("1100x760")
-        z = 1.0
-        p1 = self.orig[self.page_no].get_pixmap(matrix=fitz.Matrix(z, z))
-        p2 = work[self.page_no].get_pixmap(matrix=fitz.Matrix(z, z))
-        i1 = tk.PhotoImage(data=p1.tobytes("png"))
-        i2 = tk.PhotoImage(data=p2.tobytes("png"))
-        f = ttk.Frame(win)
-        f.pack(fill="both", expand=True)
-        c1 = tk.Canvas(f, background="#3b3b3b"); c1.pack(side="left", fill="both", expand=True)
-        c2 = tk.Canvas(f, background="#3b3b3b"); c2.pack(side="right", fill="both", expand=True)
-        c1.create_image(0, 0, anchor="nw", image=i1); c1.configure(scrollregion=(0, 0, p1.width, p1.height))
-        c2.create_image(0, 0, anchor="nw", image=i2); c2.configure(scrollregion=(0, 0, p2.width, p2.height))
-        c1.image = i1; c2.image = i2
-        self._log("已打开预览对比窗口。")
-
     def save_as(self):
         if self.orig is None:
+            messagebox.showinfo(APP_TITLE, "请先打开 PDF。")
             return
         if not self.rules:
             messagebox.showinfo(APP_TITLE, "还没有任何修改规则。")
             return
-        out = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF", "*.pdf")],
-                                           initialfile=os.path.splitext(os.path.basename(self.src_path))[0] + "_修改后.pdf")
+        out = filedialog.asksaveasfilename(
+            defaultextension=".pdf", filetypes=[("PDF", "*.pdf")],
+            initialfile=os.path.splitext(os.path.basename(self.src_path))[0] + "_修改后.pdf")
         if not out:
             return
         try:
@@ -475,13 +725,13 @@ class PdfEditorApp(tk.Tk):
         self._log(f"已保存：{out}")
         messagebox.showinfo(APP_TITLE, f"已保存：\n{out}")
 
-    # ---------- config 导入/导出 ----------
+    # ================= config =================
     def export_config(self):
         if not self.rules:
             messagebox.showinfo(APP_TITLE, "清单为空。")
             return
-        path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON", "*.json")],
-                                            initialfile="rules.json")
+        path = filedialog.asksaveasfilename(defaultextension=".json",
+                                            filetypes=[("JSON", "*.json")], initialfile="rules.json")
         if not path:
             return
         cfg = {
@@ -498,7 +748,8 @@ class PdfEditorApp(tk.Tk):
         self._log(f"已导出 config：{path}")
 
     def import_config(self):
-        path = filedialog.askopenfilename(title="选择 config.json", filetypes=[("JSON", "*.json"), ("所有文件", "*.*")])
+        path = filedialog.askopenfilename(title="选择 config.json",
+                                          filetypes=[("JSON", "*.json"), ("所有文件", "*.*")])
         if not path:
             return
         try:
@@ -517,7 +768,9 @@ class PdfEditorApp(tk.Tk):
                 self.orig = fitz.open(src)
                 self.page_no = 0
                 self.render()
+        self._after_dirty = True
         self._refresh_rules()
+        self._render_after()
         self._log(f"已导入 {len(self.rules)} 条规则：{path}")
 
 
