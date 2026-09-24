@@ -114,11 +114,20 @@ GUI 的「导出 config / 导入 config」与 CLI 使用**同一套格式**，�
 
 ## 打包成 exe
 
+推荐在项目内的**虚拟环境**里打包，避免影响全局 Python：
+
 ```powershell
+# 1) 建虚拟环境并安装依赖（只需一次）
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt pyinstaller
+
+# 2) 打包
 powershell -ExecutionPolicy Bypass -File build_exe.ps1
 ```
 
-产物在 `dist\PDFTextEditor.exe`。首次运行会在 `%LOCALAPPDATA%\PDFTextEditor` 生成字体缓存。
+`build_exe.ps1` 会自动优先使用 `.venv`（没有则退回全局 python）。
+产物在 `dist\PDFTextEditor.exe`；加 `-Console` 参数可保留控制台窗口便于看报错。
+首次运行会在 `%LOCALAPPDATA%\PDFTextEditor` 生成字体缓存，不依赖 exe 所在目录可写。
 
 ---
 
