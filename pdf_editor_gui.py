@@ -302,15 +302,15 @@ class PdfEditorApp(tk.Tk):
         ttk.Label(edit, text="字体").grid(row=2, column=0, sticky="w", pady=2)
         fontbox = ttk.Frame(edit)
         fontbox.grid(row=2, column=1, columnspan=2, sticky="we", pady=2)
-        self.cb_font = ttk.Combobox(fontbox, width=22, state="readonly",
+        self.cb_font = ttk.Combobox(fontbox, width=18, state="readonly",
                                     values=[label for _, label in self.font_choices])
         self.cb_font.current(0)
-        self.cb_font.pack(side="left", fill="x", expand=True)
-        ttk.Button(fontbox, text="…", width=3, command=self._browse_font).pack(side="left", padx=(4, 6))
-        ttk.Label(fontbox, text="字号").pack(side="left")
+        self.cb_font.pack(side="left")
+        ttk.Button(fontbox, text="…", width=3, command=self._browse_font).pack(side="left", padx=(4, 0))
         self.e_size = ttk.Entry(fontbox, width=5)
         self.e_size.insert(0, "10")
-        self.e_size.pack(side="left", padx=(4, 0))
+        self.e_size.pack(side="right", padx=(4, 0))
+        ttk.Label(fontbox, text="字号").pack(side="right")
 
         ttk.Label(edit, text="对齐").grid(row=3, column=0, sticky="w", pady=2)
         self.v_align = tk.StringVar(value="match")
@@ -385,6 +385,9 @@ class PdfEditorApp(tk.Tk):
             need_w = max(self._pane_edit.winfo_reqwidth(),
                          self.right_paned.winfo_reqwidth()) + 30
             self.outer.paneconfigure(self.right_frame, minsize=need_w)
+            # 初始宽度若小于最小宽度，直接撑到最小宽度，避免一上来就被裁切
+            if self.right_frame.winfo_width() < need_w:
+                self.outer.paneconfigure(self.right_frame, width=need_w)
         except tk.TclError:
             pass
         # 右栏两块：编辑表单不裁切；清单留基本高度
