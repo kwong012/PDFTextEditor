@@ -1,26 +1,35 @@
-# 虚拟环境
+# ---- 虚拟环境 ----
 .venv/
 venv/
+env/
 
-# 运行缓存 / 临时产物
+# ---- Python 缓存 ----
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*.egg-info/
+.pytest_cache/
 
-# PyInstaller
+# ---- PyInstaller 打包产物 ----
 build/
 dist/
 *.spec
 
-# 运行/调试输出
+# ---- 运行 / 调试输出 ----
 _cache/
 _out/
 _verify/
 _calib/
+workfile-temp/
+worktemp/
+*.log
 
-# 用户本地配置（含本机路径），保留 config.example.json
+# ---- 本机配置（含本机路径），模板请用 config.example.json ----
 config.json
+rules.json
 
-# 编辑器
+# ---- 编辑器 / 系统杂项 ----
 .vscode/
 .idea/
+Thumbs.db
+desktop.ini
+~$*
