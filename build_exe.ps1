@@ -24,7 +24,6 @@ python -m PyInstaller `
     --hidden-import fitz `
     --hidden-import fontTools `
     --hidden-import fontTools.ttLib `
-    --hidden-import PIL `
     --hidden-import numpy `
     --collect-all pymupdf `
     pdf_editor_gui.py

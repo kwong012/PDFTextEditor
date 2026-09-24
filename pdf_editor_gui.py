@@ -17,7 +17,6 @@ from tkinter import filedialog, messagebox, ttk
 
 import fitz
 import numpy as np
-from PIL import Image
 
 import pdf_edit_core as core
 
@@ -101,9 +100,6 @@ class PdfEditorApp(tk.Tk):
 
         edit = ttk.LabelFrame(right, text="编辑选中片段", padding=6)
         edit.pack(fill="x")
-        rows = [
-            ("原文", None),
-        ]
         ttk.Label(edit, text="原文").grid(row=0, column=0, sticky="w", pady=2)
         self.e_old = ttk.Entry(edit, width=34)
         self.e_old.grid(row=0, column=1, columnspan=2, sticky="we", pady=2)
@@ -261,8 +257,6 @@ class PdfEditorApp(tk.Tk):
         rect, text, font, size = hit
         self._sel_bbox = rect
         self.e_old.delete(0, "end"); self.e_old.insert(0, text)
-        if not self.e_new.get().strip():
-            pass
         self.e_size.delete(0, "end"); self.e_size.insert(0, str(int(round(size))))
         # 自动匹配字体
         sysfont = core.find_system_font(font)
