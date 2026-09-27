@@ -61,6 +61,22 @@ Write-Host "==> building ($layout $mode) ..."
     --specpath "$outBase" `
     pdf_editor_gui.py
 
+# --- 剔除运行用不到的文件（开发头文件 / 示例图片等），缩小体积 ---
+if (-not $Onefile) {
+    $junk = @(
+        "$outBase\dist\$Name\_internal\pymupdf\mupdf-devel",   # MuPDF 的 C 头文件与 .lib，运行不需要
+        "$outBase\dist\$Name\_internal\_tk_data\images"        # Tk 自带的示例图标
+    )
+    foreach ($j in $junk) {
+        if (Test-Path $j) {
+            $mb = [math]::Round(((Get-ChildItem $j -Recurse -File -Force -ErrorAction SilentlyContinue |
+                                  Measure-Object Length -Sum).Sum) / 1MB, 1)
+            Remove-Item -Recurse -Force $j -ErrorAction SilentlyContinue
+            Write-Host "==> 剔除 $([IO.Path]::GetFileName($j))  (-$mb MB)"
+        }
+    }
+}
+
 Write-Host ""
 if ($Onefile) {
     Write-Host "done. output: $outBase\dist\$Name.exe"
