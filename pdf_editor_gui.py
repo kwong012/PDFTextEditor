@@ -34,6 +34,7 @@ UI_FONT_SMALL = ("Microsoft YaHei UI", 8)              # 灰色微提示
 ZOOM_MIN, ZOOM_MAX = 0.2, 5.0
 TILE_MARGIN = 0.5          # 缓冲边 = 视口尺寸的 50%
 RENDER_DEBOUNCE_MS = 40
+RIGHT_PANE_MIN = 400       # 右侧操作栏的最小宽度（保证表单/清单不被压扁）
 
 # ---------------- 主题（浅色 / 深色） ----------------
 # Windows 下 ttk 默认用 vista 主题，很多颜色改不动，所以统一切到 clam，
@@ -751,7 +752,8 @@ class PdfEditorApp(tk.Tk):
         try:
             need_w = max(self._pane_edit.winfo_reqwidth(),
                          self.right_paned.winfo_reqwidth()) + 16
-            need_w = min(need_w, max(320, int(self.winfo_width() * 0.36)))
+            need_w = max(need_w, RIGHT_PANE_MIN)                       # 右栏保证最小宽度
+            need_w = min(need_w, max(RIGHT_PANE_MIN, int(self.winfo_width() * 0.40)))
             self.outer.paneconfigure(self.right_frame, minsize=need_w)
             # 初始宽度若小于最小宽度，直接撑到最小宽度，避免一上来就被裁切
             if self.right_frame.winfo_width() < need_w:
