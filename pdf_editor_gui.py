@@ -97,7 +97,7 @@ def save_settings(data: dict) -> None:
 # 单行提示：按当前操作阶段只显示一条（序号交给「tips」胶囊，文案里不再带序号）
 HINT_OPEN = "先「打开 PDF」"
 HINT_PICK = "单击左侧预览里的文字"
-HINT_TYPE = "在「替换为」里填新文字"
+HINT_TYPE = "在「替换」里填新文字"
 HINT_ADD = "点「添加到清单」"
 HINT_MORE = "继续点文字加下一条，或点「另存为…」导出"
 
@@ -122,7 +122,7 @@ HELP_TEXT = f"""PDFTextEditor · 使用说明
 【四步上手】
 1. 点「打开 PDF」，选择要改的 PDF（必须是电子文本 PDF，文字可选中的）。
 2. 在左侧「原图」里点一下要修改的那段文字，它会高亮，并自动带出字体、字号、左边框。
-3. 在右侧「替换为」里输入新文字；需要时调整字体 / 字号 / 对齐 / 范围；
+3. 在右侧「替换」里输入新文字；需要时调整字体 / 字号 / 对齐 / 范围；
    然后点「添加到清单」。可以重复 2~3 步加多条。
 4. 点「另存为…」导出新 PDF。
 
@@ -160,7 +160,7 @@ HELP_TEXT = f"""PDFTextEditor · 使用说明
 ────────────────────────────
 【各控件说明】
 · 原文        ：从预览里点选出来的，只读。
-· 替换为      ：要改成的新文字。
+· 替换      ：要改成的新文字。
 · 字体/字号   ：默认按原片段的字体/字号自动填好，一般不用改。
 · 对齐        ：
     - 保持原位  ：新文字沿用原来的位置（默认）。
@@ -606,16 +606,17 @@ class PdfEditorApp(tk.Tk):
         self._style_widgets()
 
     def _build_edit_form(self, parent):
-        edit = ttk.LabelFrame(parent, text="编辑选中片段", padding=8)
+        edit = ttk.LabelFrame(parent, text="选中片段", padding=8)
         edit.pack(fill="x")
 
-        ttk.Label(edit, text="原文").grid(row=0, column=0, sticky="w", pady=4)
-        self.e_old = ttk.Entry(edit, width=34)
-        self.e_old.grid(row=0, column=1, columnspan=2, sticky="we", pady=4)
+        ttk.Label(edit, text="原文字").grid(row=0, column=0, sticky="w", pady=5)
+        self.e_old = ttk.Entry(edit, width=30)
+        self.e_old.state(["readonly"])          # 只读：浅底、不可手改
+        self.e_old.grid(row=0, column=1, columnspan=2, sticky="we", pady=5)
 
-        ttk.Label(edit, text="替换为").grid(row=1, column=0, sticky="w", pady=4)
-        self.e_new = ttk.Entry(edit, width=34)
-        self.e_new.grid(row=1, column=1, columnspan=2, sticky="we", pady=4)
+        ttk.Label(edit, text="替换", font=UI_FONT_BOLD).grid(row=1, column=0, sticky="w", pady=5)
+        self.e_new = ttk.Entry(edit, width=30)
+        self.e_new.grid(row=1, column=1, columnspan=2, sticky="we", pady=5)
         self.e_new.bind("<Return>", lambda e: self.add_rule())
         self.e_new.bind("<KeyRelease>", lambda e: self._on_new_text())
 
@@ -632,12 +633,13 @@ class PdfEditorApp(tk.Tk):
         self.e_size.pack(side="right", padx=(4, 0))
         ttk.Label(fontbox, text="字号").pack(side="right")
 
-        ttk.Label(edit, text="对齐").grid(row=3, column=0, sticky="w", pady=4)
+        ttk.Label(edit, text="对齐").grid(row=3, column=0, sticky="w", pady=5)
         self.v_align = tk.StringVar(value="match")
-        af = ttk.Frame(edit)
-        af.grid(row=3, column=1, columnspan=2, sticky="w")
-        ttk.Radiobutton(af, text="保持原位", value="match", variable=self.v_align).pack(side="left")
-        ttk.Radiobutton(af, text="左对齐留白", value="left", variable=self.v_align).pack(side="left", padx=(8, 0))
+        self.cb_align = ttk.Combobox(edit, width=14, state="readonly",
+                                     values=["保持原位", "左对齐留白"])
+        self.cb_align.current(0)
+        self.cb_align.grid(row=3, column=1, sticky="w", pady=5)
+        self.cb_align.bind("<<ComboboxSelected>>", self._on_align_change)
 
         ttk.Label(edit, text="留白").grid(row=4, column=0, sticky="w", pady=4)
         af2 = ttk.Frame(edit)
@@ -659,12 +661,26 @@ class PdfEditorApp(tk.Tk):
         ttk.Radiobutton(sf, text="仅选中这一处", value="single", variable=self.v_scope).pack(side="left", padx=(8, 0))
 
         btns = ttk.Frame(edit)
-        btns.grid(row=6, column=0, columnspan=3, sticky="we", pady=(8, 0))
-        self.btn_add = ttk.Button(btns, text="添加到清单", style="Accent.TButton", command=self.add_rule)
-        self.btn_add.pack(side="left")
+        btns.grid(row=6, column=0, columnspan=3, sticky="we", pady=(10, 0))
+        btns.columnconfigure(0, weight=1)       # 主按钮占满，次按钮靠右
+        self.btn_add = ttk.Button(btns, text="添加到清单", style="Accent.TButton",
+                                  command=self.add_rule)
+        self.btn_add.grid(row=0, column=0, sticky="we")
         ttk.Button(btns, text="取消选择", style="Ghost.TButton",
-                   command=self.clear_selection).pack(side="left", padx=4)
+                   command=self.clear_selection).grid(row=0, column=1, padx=(6, 0))
         edit.columnconfigure(1, weight=1)
+
+    def _on_align_change(self, _event=None):
+        """下拉的显示文案 ↔ 内部取值（match / left）。"""
+        self.v_align.set("match" if self.cb_align.current() == 0 else "left")
+
+    def _set_e_old(self, text):
+        """「原文字」是只读框：程序写入时临时解除只读（readonly 会忽略 insert）。"""
+        self.e_old.state(["!readonly"])
+        self.e_old.delete(0, "end")
+        if text:
+            self.e_old.insert(0, text)
+        self.e_old.state(["readonly"])
 
     def _build_rules_pane(self, parent):
         lst = ttk.LabelFrame(parent, text="修改清单", padding=8)
@@ -675,7 +691,7 @@ class PdfEditorApp(tk.Tk):
         self.tree = ttk.Treeview(wrap, columns=("old", "new", "scope"), show="headings",
                                  height=6, yscrollcommand=sb.set)
         sb.configure(command=self.tree.yview)
-        for c, w, t in (("old", 170, "原文"), ("new", 190, "替换为"), ("scope", 64, "范围")):
+        for c, w, t in (("old", 170, "原文"), ("new", 190, "替换"), ("scope", 64, "范围")):
             self.tree.heading(c, text=t)
             self.tree.column(c, width=w, anchor="w")
         self.tree.column("scope", stretch=False)     # 「范围」列不该跟着窗口拉伸
@@ -1148,8 +1164,7 @@ class PdfEditorApp(tk.Tk):
             return
         rect, text, font, size = hit
         self._sel_bbox = rect
-        self.e_old.delete(0, "end")
-        self.e_old.insert(0, text)
+        self._set_e_old(text)
         self.e_size.delete(0, "end")
         self.e_size.insert(0, str(int(round(size))))
         sysfont = core.find_system_font(font)
@@ -1200,12 +1215,12 @@ class PdfEditorApp(tk.Tk):
                                      outline=self._pal["mark"], width=2, tags="sel")
 
     def clear_selection(self):
-        """取消选择：清空 原文/替换为 两栏，去掉左侧高亮。"""
+        """取消选择：清空 原文/替换 两栏，去掉左侧高亮。"""
         self._clear_fields()
 
     def _clear_fields(self):
-        """清空「原文」「替换为」，取消左侧高亮，并回到当前阶段提示。"""
-        self.e_old.delete(0, "end")
+        """清空「原文」「替换」，取消左侧高亮，并回到当前阶段提示。"""
+        self._set_e_old("")
         self.e_new.delete(0, "end")
         self._sel_bbox = None
         self.canvas.delete("sel")
@@ -1220,7 +1235,7 @@ class PdfEditorApp(tk.Tk):
             messagebox.showwarning(APP_TITLE, "请先在左侧预览里点选要修改的文字.")
             return
         if not new:
-            messagebox.showwarning(APP_TITLE, '请填写"替换为"内容.')
+            messagebox.showwarning(APP_TITLE, '请填写"替换"内容.')
             return
         rule = {"old": old, "new": new,
                 "font": self._selected_font_path(),
