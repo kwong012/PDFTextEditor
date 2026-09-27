@@ -29,6 +29,8 @@ APP_TITLE = "PDFTextEditor"
 # 字体：界面统一中文字体；标题用粗体着重
 UI_FONT = ("Microsoft YaHei UI", 9)
 UI_FONT_BOLD = ("Microsoft YaHei UI", 9, "bold")
+UI_FONT_TITLE = ("Microsoft YaHei UI", 10, "bold")     # 分组标题：比正文大一档
+UI_FONT_SMALL = ("Microsoft YaHei UI", 8)              # 灰色微提示
 ZOOM_MIN, ZOOM_MAX = 0.2, 5.0
 TILE_MARGIN = 0.5          # 缓冲边 = 视口尺寸的 50%
 RENDER_DEBOUNCE_MS = 40
@@ -251,7 +253,7 @@ class PdfEditorApp(tk.Tk):
         except tk.TclError:
             pass
         style.configure(".", font=UI_FONT)
-        style.configure("TLabelframe.Label", font=UI_FONT_BOLD)
+        style.configure("TLabelframe.Label", font=UI_FONT_TITLE)
         style.configure("Treeview.Heading", font=UI_FONT_BOLD)
         self._style_ttk()
 
@@ -263,12 +265,12 @@ class PdfEditorApp(tk.Tk):
         st.configure("TLabel", background=p["bg"], foreground=p["fg"])
         st.configure("TLabelframe", background=p["bg"], bordercolor=p["border"],
                      relief="solid", borderwidth=1)
-        st.configure("TLabelframe.Label", background=p["bg"], foreground=p["fg"], font=UI_FONT_BOLD)
+        st.configure("TLabelframe.Label", background=p["bg"], foreground=p["fg"], font=UI_FONT_TITLE)
         st.configure("TSeparator", background=p["border"])
 
         st.configure("TButton", background=p["btn"], foreground=p["fg"],
                      bordercolor=p["border"], lightcolor=p["btn"], darkcolor=p["btn"],
-                     focuscolor=p["sel_bg"], padding=(8, 3))
+                     focuscolor=p["sel_bg"], padding=(10, 4))
         st.map("TButton",
                background=[("pressed", p["sel_bg"]), ("active", p["btn_hover"]), ("disabled", p["btn"])],
                foreground=[("disabled", p["disabled"])])
@@ -286,13 +288,13 @@ class PdfEditorApp(tk.Tk):
 
         st.configure("TEntry", fieldbackground=p["field"], foreground=p["fg"],
                      bordercolor=p["border"], lightcolor=p["border"], darkcolor=p["border"],
-                     insertcolor=p["fg"], padding=2)
+                     insertcolor=p["fg"], padding=(4, 3))
         st.map("TEntry", fieldbackground=[("disabled", p["bg"])],
                foreground=[("disabled", p["disabled"])])
 
         st.configure("TCombobox", fieldbackground=p["field"], background=p["btn"],
                      foreground=p["fg"], bordercolor=p["border"], arrowcolor=p["fg"],
-                     lightcolor=p["border"], darkcolor=p["border"], padding=2)
+                     lightcolor=p["border"], darkcolor=p["border"], padding=(4, 2))
         st.map("TCombobox",
                fieldbackground=[("readonly", p["field"]), ("disabled", p["bg"])],
                foreground=[("readonly", p["fg"]), ("disabled", p["disabled"])],
@@ -458,7 +460,7 @@ class PdfEditorApp(tk.Tk):
         ttk.Button(zbar, text="－", width=3, command=lambda: self.set_zoom(self.zoom / 1.25)).pack(side="left")
         ttk.Button(zbar, text="＋", width=3, command=lambda: self.set_zoom(self.zoom * 1.25)).pack(side="left")
         self.lbl_mousehint = ttk.Label(zbar, text="滚轮滚动 · Ctrl+滚轮缩放 · Shift+滚轮横向",
-                                       foreground=self._pal["muted"])
+                                       foreground=self._pal["muted"], font=UI_FONT_SMALL)
         self.lbl_mousehint.pack(side="left", padx=10)
 
         # 画布上方一行：「tips」胶囊 + 当前阶段提示（替代原来的「原图 / 改后」标签）
