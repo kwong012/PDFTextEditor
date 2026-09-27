@@ -253,7 +253,7 @@ class PdfEditorApp(tk.Tk):
                      bordercolor=p["border"], lightcolor=p["btn"], darkcolor=p["btn"],
                      focuscolor=p["sel_bg"], padding=(8, 3))
         st.map("TButton",
-               background=[("pressed", p["sel_bg"]), ("active", p["btn_hover"]), ("disabled", p["bg"])],
+               background=[("pressed", p["sel_bg"]), ("active", p["btn_hover"]), ("disabled", p["btn"])],
                foreground=[("disabled", p["disabled"])])
 
         st.configure("TMenubutton", background=p["btn"], foreground=p["fg"],
