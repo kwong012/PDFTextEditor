@@ -379,6 +379,7 @@ class PdfEditorApp(tk.Tk):
                            insertbackground=p["fg"], selectbackground=p["sel_bg"],
                            selectforeground=p["sel_fg"], highlightthickness=0, bd=0)
         self.lbl_hint.configure(foreground=p["hint"])
+        self._show_empty_card()
         self._load_icons()
         # tips 胶囊跟着换色
         self.pill.configure(bg=p["bg"])
@@ -830,6 +831,7 @@ class PdfEditorApp(tk.Tk):
         self._refresh_rules()
         self.title(f"{APP_TITLE} — {os.path.basename(path)}")
         self._log(f"已打开: {path} ({self.orig.page_count} 页)")
+        self.canvas.delete("empty")           # 有文档了，撤掉引导卡
         self._update_hint()
         self.update_idletasks()
         self.autofit()
@@ -954,7 +956,29 @@ class PdfEditorApp(tk.Tk):
         if self._sel_bbox is not None:
             self._highlight(self._sel_bbox)
 
+    def _show_empty_card(self, _event=None):
+        """没打开文档时，在预览区中央显示引导卡。"""
+        if self.orig is not None:
+            return
+        cv = self.canvas
+        cv.delete("empty")
+        w, h = cv.winfo_width(), cv.winfo_height()
+        if w < 220 or h < 170:
+            return
+        p = self._pal
+        cx, cy = w / 2, h / 2
+        cv.create_rectangle(cx - 180, cy - 72, cx + 180, cy + 72,
+                            fill=p["field"], outline=p["border"], tags="empty")
+        cv.create_text(cx, cy - 26, text="📄", font=("Segoe UI Emoji", 24), tags="empty")
+        cv.create_text(cx, cy + 14, text="把 PDF 拖到这里，或点左上角「打开」",
+                       font=UI_FONT, fill=p["fg"], tags="empty")
+        cv.create_text(cx, cy + 40, text="支持可选中文字的电子文本 PDF（不支持扫描件）",
+                       font=UI_FONT_SMALL, fill=p["muted"], tags="empty")
+
     def _schedule_render(self):
+        if self.orig is None:                 # 还没打开文档：显示引导卡就够了
+            self._show_empty_card()
+            return
         if self._render_job is not None:
             return
         self._render_job = self.after(RENDER_DEBOUNCE_MS, self._do_scheduled_render)
