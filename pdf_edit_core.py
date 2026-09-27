@@ -581,11 +581,47 @@ def collect_targets(doc, repls, cfg=None):
     return found
 
 
-def compute_positions(origins, new_text, rule, font_size):
+def _font_metrics(font_file: str):
+    """字体度量对象（用来算真实字宽）；拿不到就返回 None（退回等宽步长）。"""
+    try:
+        return fitz.Font(fontfile=font_file)
+    except Exception:
+        return None
+
+
+def _char_advances(new_text, font_size, metrics):
+    """每个字符的前进宽度：优先字体真实度量，拿不到返回 None。"""
+    if metrics is None:
+        return None
+    try:
+        adv = list(metrics.char_lengths(new_text, fontsize=font_size))
+        if len(adv) == len(new_text):
+            return adv
+    except Exception:
+        pass
+    try:
+        return [metrics.text_length(ch, fontsize=font_size) for ch in new_text]
+    except Exception:
+        return None
+
+
+def _lay_out(new_text, x0, y, step, font_size, metrics):
+    """从 x0 起排字：有字体度量就按真实字宽走，没有才用等宽步长。"""
+    adv = _char_advances(new_text, font_size, metrics)
+    out, x = [], x0
+    for i in range(len(new_text)):
+        out.append((x, y))
+        x += adv[i] if adv else step
+    return out
+
+
+def compute_positions(origins, new_text, rule, font_size, metrics=None):
     """决定每个新字符画在哪。
 
     align='left' 时从 left_border_x + left_gap 起左对齐（给单元格留边框间距）；
-    否则长度相同逐字沿用原基点，变长则按原首字字距续排。
+    长度相同则逐字沿用原基点（中文/表格最准）；
+    长度不同时按**字体真实字宽**续排 —— 拉丁字母宽窄不一，用平均步长硬排会
+    "中间冒空格、逗号飘出去"，所以这里必须用真实度量。
     """
     xs = [o[0] for o in origins]
     y = origins[0][1]
@@ -593,10 +629,10 @@ def compute_positions(origins, new_text, rule, font_size):
     step = (xs[-1] - xs[0]) / (len(xs) - 1) if len(xs) > 1 else float(font_size)
     if rule.get("align") == "left":
         x0 = float(rule["left_border_x"]) + float(rule.get("left_gap", 0.0))
-        return [(x0 + i * step, y) for i in range(n)]
+        return _lay_out(new_text, x0, y, step, font_size, metrics)
     if n == len(origins):
         return list(origins)
-    return [(xs[0] + i * step, y) for i in range(n)]
+    return _lay_out(new_text, xs[0], y, step, font_size, metrics)
 
 
 def apply_replacements(doc, cfg, targets=None):
@@ -627,8 +663,11 @@ def apply_replacements(doc, cfg, targets=None):
     cache = {}
     for page, _bbox, origins, rule, st in plans:
         key = (st["font_file"], st["font_face"])
-        ttf = cache.setdefault(key, ensure_ttf(st["font_file"], st["font_face"]))
-        pos = compute_positions(origins, rule["new"], rule, st["font_size"])
+        if key not in cache:
+            ttf = ensure_ttf(st["font_file"], st["font_face"])
+            cache[key] = (ttf, _font_metrics(ttf))
+        ttf, metrics = cache[key]
+        pos = compute_positions(origins, rule["new"], rule, st["font_size"], metrics)
         for ch, (x, y) in zip(rule["new"], pos):
             page.insert_text(
                 fitz.Point(x, y), ch,
