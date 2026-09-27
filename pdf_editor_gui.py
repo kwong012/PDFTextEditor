@@ -44,8 +44,8 @@ THEMES = {
         border="#c9c9c9", btn="#e8e8e8", btn_hover="#dcdcdc",
         sel_bg="#cfe4ff", sel_fg="#1a1a1a",   # 选中项
         head="#e3e3e3",                       # 表头
-        sash="#d0d0d0",                       # 分隔条
-        canvas="#3b3b3b",                     # 预览画布底色（页面四周）
+        sash="#c4c4c4",                       # 分隔条
+        canvas="#e4e6e8",                     # 预览画布底色（页面四周）
         accent="#0066cc", ok="#00aa66", warn="#cc6600",
         muted="#777777", mark="#e53935", disabled="#a0a0a0",
     ),
@@ -56,7 +56,7 @@ THEMES = {
         border="#4d4d4d", btn="#3a3a3a", btn_hover="#4a4a4a",
         sel_bg="#3f5b78", sel_fg="#ffffff",
         head="#333333",
-        sash="#1f1f1f",
+        sash="#4a4a4a",
         canvas="#1c1c1c",
         accent="#4fc3f7", ok="#4ade80", warn="#fbbf24",
         muted="#9a9a9a", mark="#ff5252", disabled="#6f6f6f",
