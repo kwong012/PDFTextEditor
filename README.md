@@ -11,6 +11,24 @@
 
 ---
 
+## 主要功能
+
+- **即时预览**：选中文字、填好「替换」就立刻看到效果，不用先加进清单；
+  点「添加到清单」才真正写入规则（预览状态会明确标出来）。
+- **颜色跟随原文**：默认沿用原文颜色（灰字、红字不会被改成黑色）。
+  点色块可用调色板选色；「取色器」可以直接在页面上点一下取该处颜色。
+- **字体自动定位**：自动读 PDF 里的字体名，在系统字体目录里找对应字体
+  （支持 `.ttc` 的各个字面、粗体/斜体；`Heiti`、`Helvetica` 这类走替身表映射）。
+  系统里**没有**该字体时会弹浮窗说明要装哪个字体 —— 把字体文件放进
+  `data\fonts\`（便携版）或 `%LOCALAPPDATA%\PDFTextEditor\fonts\` 即可，
+  **不需要**装进 Windows 字体目录，也不用管理员权限。
+- **字号 / 描边**：字号按原文精确取值（10.45 就是 10.45，不再取整）；
+  伪加粗描边默认**关闭**，需要时在「高级」里打开（或用「设置 ▾ → 自动标定描边」）。
+- **对比预览**：左「原图」右「改后」，滚动与缩放同步；「适应窗口」自动缩放。
+- **修改清单**：同一处重复添加会覆盖；可单条删除或清空。
+
+---
+
 ## 下载
 
 从 [Releases](../../releases) 下载 `PDFTextEditor-Portable-<版本>.zip`，
@@ -63,8 +81,10 @@ GUI 的「导出 config / 导入 config」与 CLI 使用**同一套格式**，�
   "out": "输出路径",
   "font": "C:\\Windows\\Fonts\\simsun.ttc",  // 全局默认字体文件
   "font_name": "simsun",
+  "font_face": 0,           // .ttc 里用第几个字面（从 0 开始）
   "font_size": 10,          // 全局默认字号
-  "bold_stroke": 0.03,      // 伪加粗描边宽度（见下文）
+  "color": [0, 0, 0],       // 全局默认文字颜色；不写则沿用原文颜色
+  "bold_stroke": 0,         // 伪加粗描边宽度（默认 0 = 不描边，见下文）
   "replacements": [
     { "old": "原文", "new": "新文" },
 
@@ -76,8 +96,9 @@ GUI 的「导出 config / 导入 config」与 CLI 使用**同一套格式**，�
     { "old": "原文", "new": "新文",
       "scope": "single", "page": 0, "bbox": [100.0, 200.0, 160.0, 210.0] },
 
-    // 覆盖全局字体/字号/描边
-    { "old": "原文", "new": "新文", "font_size": 12, "bold_stroke": 0.04 }
+    // 覆盖全局字体/字号/描边/颜色（font_face = .ttc 里的第几个字面）
+    { "old": "原文", "new": "新文", "font_size": 12, "bold_stroke": 0.04,
+      "font": "C:\\Windows\\Fonts\\msyhbd.ttc", "font_face": 0, "color": [255, 0, 0] }
   ]
 }
 ```
@@ -89,6 +110,9 @@ GUI 的「导出 config / 导入 config」与 CLI 使用**同一套格式**，�
 | `scope` | `all`（默认）替换全部相同文本；`single` 仅替换 `page`+`bbox` 指定的一处 |
 | `align` | 缺省按原基点重绘；`left` 从 `left_border_x + left_gap` 起左对齐 |
 | `bbox` | PDF 坐标 `[x0,y0,x1,y1]`，`scope=single` 时用于精确定位 |
+| `color` | `[r,g,b]`（0-255）或 `"#rrggbb"`；不写则**沿用原文颜色** |
+| `font` / `font_face` | 字体文件路径与字面号（`.ttc` 可指定第几个字面，从 0 开始） |
+| `bold_stroke` | 伪加粗描边宽度，默认 `0`（不描边）。原文是"用描边假装粗体"时才需要 |
 
 
 
@@ -121,7 +145,8 @@ powershell -ExecutionPolicy Bypass -File build_exe.ps1
 - 加 `-Onefile` → `worktemp\pyinstaller\dist\PDFTextEditor.exe`
 
 字体缓存位置：程序目录里有 `portable.flag`（便携版）时写在**程序目录的 `data\`**，
-否则写在 `%LOCALAPPDATA%\PDFTextEditor`。
+否则写在 `%LOCALAPPDATA%\PDFTextEditor`。自己下载的字体（系统里没有的那些）放在
+同目录的 `fonts\` 里即可被自动识别，不需要装进 Windows 字体目录。
 
 ### 便携版
 
