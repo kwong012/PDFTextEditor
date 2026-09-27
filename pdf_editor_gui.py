@@ -271,6 +271,7 @@ class PdfEditorApp(tk.Tk):
         st = ttk.Style(self)
         st.configure("TFrame", background=p["bg"])
         st.configure("TLabel", background=p["bg"], foreground=p["fg"])
+        st.configure("Muted.TLabel", background=p["bg"], foreground=p["muted"], font=UI_FONT_SMALL)
         st.configure("TLabelframe", background=p["bg"], bordercolor=p["border"],
                      relief="solid", borderwidth=1)
         st.configure("TLabelframe.Label", background=p["bg"], foreground=p["fg"], font=UI_FONT_TITLE)
@@ -641,24 +642,33 @@ class PdfEditorApp(tk.Tk):
         self.cb_align.grid(row=3, column=1, sticky="w", pady=5)
         self.cb_align.bind("<<ComboboxSelected>>", self._on_align_change)
 
-        ttk.Label(edit, text="留白").grid(row=4, column=0, sticky="w", pady=4)
-        af2 = ttk.Frame(edit)
-        af2.grid(row=4, column=1, columnspan=2, sticky="w")
-        ttk.Label(af2, text="左边框x").pack(side="left")
+        # ── 高级项：默认收起，点一行小字展开 ──
+        self._adv_open = False
+        self.lbl_adv = ttk.Label(edit, text="▸ 高级：左边框位置 / 间隙 / 字宽 / 范围",
+                                 style="Muted.TLabel", cursor="hand2")
+        self.lbl_adv.grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        self.lbl_adv.bind("<Button-1>", self._toggle_advanced)
+
+        self.adv = ttk.Frame(edit)
+        self.adv.grid(row=5, column=0, columnspan=3, sticky="we")
+        ttk.Label(self.adv, text="左边框位置").grid(row=0, column=0, sticky="w", pady=4)
+        af2 = ttk.Frame(self.adv)
+        af2.grid(row=0, column=1, sticky="w", pady=4)
         self.e_border = ttk.Entry(af2, width=8)
-        self.e_border.pack(side="left", padx=(2, 10))
-        ttk.Label(af2, text="间隙").pack(side="left")
+        self.e_border.pack(side="left")
+        ttk.Label(af2, text="间隙").pack(side="left", padx=(10, 4))
         self.cb_gap = ttk.Combobox(af2, width=5, values=["1/4", "1/3", "1/2", "1"], state="readonly")
         self.cb_gap.current(1)
         self.cb_gap.pack(side="left")
-        ttk.Label(af2, text="字宽").pack(side="left", padx=(2, 0))
+        ttk.Label(af2, text="字宽").pack(side="left", padx=(4, 0))
 
-        ttk.Label(edit, text="范围").grid(row=5, column=0, sticky="w", pady=4)
+        ttk.Label(self.adv, text="范围").grid(row=1, column=0, sticky="w", pady=4)
         self.v_scope = tk.StringVar(value="all")
-        sf = ttk.Frame(edit)
-        sf.grid(row=5, column=1, columnspan=2, sticky="w")
+        sf = ttk.Frame(self.adv)
+        sf.grid(row=1, column=1, sticky="w", pady=4)
         ttk.Radiobutton(sf, text="所有相同文本", value="all", variable=self.v_scope).pack(side="left")
         ttk.Radiobutton(sf, text="仅选中这一处", value="single", variable=self.v_scope).pack(side="left", padx=(8, 0))
+        self.adv.grid_remove()               # 默认收起
 
         btns = ttk.Frame(edit)
         btns.grid(row=6, column=0, columnspan=3, sticky="we", pady=(10, 0))
@@ -669,6 +679,16 @@ class PdfEditorApp(tk.Tk):
         ttk.Button(btns, text="取消选择", style="Ghost.TButton",
                    command=self.clear_selection).grid(row=0, column=1, padx=(6, 0))
         edit.columnconfigure(1, weight=1)
+
+    def _toggle_advanced(self, _event=None):
+        """展开/收起「高级」那一组低频项。"""
+        self._adv_open = not self._adv_open
+        if self._adv_open:
+            self.adv.grid()
+            self.lbl_adv.configure(text="▾ 高级：左边框位置 / 间隙 / 字宽 / 范围")
+        else:
+            self.adv.grid_remove()
+            self.lbl_adv.configure(text="▸ 高级：左边框位置 / 间隙 / 字宽 / 范围")
 
     def _on_align_change(self, _event=None):
         """下拉的显示文案 ↔ 内部取值（match / left）。"""
