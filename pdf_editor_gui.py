@@ -86,10 +86,12 @@ def save_settings(data: dict) -> None:
     except Exception:
         pass
 
-STEPS = ("① 点左侧预览里的文字\n"
-         "② 填\"替换为\"\n"
-         "③ 点\"添加到清单\"\n"
-         "④ 点\"另存为\"导出")
+# 单行提示：按当前操作阶段只显示一条，省出右栏高度
+HINT_OPEN = "① 先「打开 PDF」"
+HINT_PICK = "② 点左侧预览里的文字"
+HINT_TYPE = "③ 在「替换为」里填新文字"
+HINT_ADD = "④ 点「添加到清单」"
+HINT_MORE = "② 继续点文字加下一条 ｜ ⑤ 点「另存为…」导出"
 
 HELP_TEXT = f"""PDFTextEditor · 使用说明
 
@@ -217,7 +219,7 @@ class PdfEditorApp(tk.Tk):
 
         self._apply_styles()
         self._build_ui()
-        self._set_hint(STEPS)
+        self._update_hint()
         self._log('就绪. 请先点"打开 PDF". 第一次用请看"帮助".')
         self.after(80, self._on_configure)
         self.after(200, self._apply_minsizes)
@@ -666,6 +668,18 @@ class PdfEditorApp(tk.Tk):
     def _set_hint(self, msg):
         self.lbl_hint.config(text=msg)
 
+    def _update_hint(self):
+        """按当前操作阶段只显示一条提示。"""
+        if self.orig is None:
+            msg = HINT_OPEN
+        elif self._sel_bbox is None:
+            msg = HINT_MORE if self.rules else HINT_PICK
+        elif not self.e_new.get().strip():
+            msg = HINT_TYPE
+        else:
+            msg = HINT_ADD
+        self._set_hint(msg)
+
     def _selected_font_path(self):
         idx = self.cb_font.current()
         return self.font_choices[idx if idx >= 0 else 0][0]
@@ -725,7 +739,7 @@ class PdfEditorApp(tk.Tk):
         self._refresh_rules()
         self.title(f"{APP_TITLE} — {os.path.basename(path)}")
         self._log(f"已打开: {path} ({self.orig.page_count} 页)")
-        self._set_hint(STEPS)
+        self._update_hint()
         self.update_idletasks()
         self.autofit()
 
@@ -1059,13 +1073,14 @@ class PdfEditorApp(tk.Tk):
         self._highlight(rect)
         self._update_add_state()
         self.e_new.focus_set()
-        self._set_hint(f'已选中"{text}", 填"替换为"后按回车')
+        self._update_hint()
         self._log(f'选中: {text!r} (字体 {font or "?"}, {size:.1f}pt)')
         if self.e_new.get().strip():
             self._enable_after()
 
     def _on_new_text(self):
         self._update_add_state()
+        self._update_hint()
         if self.e_old.get().strip() and self.e_new.get().strip():
             self._enable_after()
 
@@ -1098,13 +1113,13 @@ class PdfEditorApp(tk.Tk):
         self._clear_fields()
 
     def _clear_fields(self):
-        """清空「原文」「替换为」，取消左侧高亮，并回到四步引导。"""
+        """清空「原文」「替换为」，取消左侧高亮，并回到当前阶段提示。"""
         self.e_old.delete(0, "end")
         self.e_new.delete(0, "end")
         self._sel_bbox = None
         self.canvas.delete("sel")
         self._update_add_state()
-        self._set_hint(STEPS)
+        self._update_hint()
 
     # ================= 规则 =================
     def add_rule(self):
@@ -1175,6 +1190,7 @@ class PdfEditorApp(tk.Tk):
             scope = "仅此处" if r.get("scope") == "single" else "全部"
             self.tree.insert("", "end", iid=str(i), values=(r["old"], r["new"], scope))
         self._update_add_state()
+        self._update_hint()
 
     # ================= 文档构建 =================
     def _build_working(self):
@@ -1270,6 +1286,7 @@ class PdfEditorApp(tk.Tk):
             messagebox.showerror(APP_TITLE, f"保存失败: {e}")
             return
         self._log(f"已保存: {out}")
+        self._set_hint(f"✓ 已导出：{os.path.basename(out)}（可继续改，或再点「另存为…」）")
         messagebox.showinfo(APP_TITLE, f"已保存:\n{out}")
 
     # ================= config =================
