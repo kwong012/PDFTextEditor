@@ -691,6 +691,9 @@ class PdfEditorApp(tk.Tk):
         else:
             self.adv.grid_remove()
             self.lbl_adv.configure(text="▸ 高级：左边框位置 / 间隙 / 字宽 / 范围")
+        # 表单高度变了：让右栏分隔条重新贴到表单底边
+        self.update_idletasks()
+        self._apply_minsizes()
 
     def _on_align_change(self, _event=None):
         """下拉的显示文案 ↔ 内部取值（match / left）。"""
