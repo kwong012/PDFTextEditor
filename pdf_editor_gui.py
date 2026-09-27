@@ -105,7 +105,7 @@ def save_settings(data: dict) -> None:
 
 # 单行提示：按当前操作阶段只显示一条（序号交给「tips」胶囊，文案里不再带序号）
 HINT_OPEN = "先「打开 PDF」"
-HINT_PICK = "单击左侧预览里的文字"
+HINT_PICK = "单击左侧预览里的文字，或按住左键框选一行"
 HINT_TYPE = "在「替换」里填新文字"
 HINT_ADD = "右侧是即时预览（尚未加入清单），点「添加到清单」生效"
 HINT_MORE = "继续点文字加下一条，或点「另存为…」导出"
@@ -267,6 +267,7 @@ class PdfEditorApp(tk.Tk):
         self._sel_rgb = None                          # 当前选中片段的原文颜色 (r,g,b)
         self._color_override = None                   # 用户自选颜色；None = 跟随原文
         self._picking = False                         # 取色器：正等着在页面上点一下
+        self._drag = None                             # 左键框选状态（按下-拖动-松开）
 
         # 主题：默认浅色；上次的选择会记住（settings.json 与字体缓存同目录）
         saved_theme = load_settings().get("theme")
@@ -609,7 +610,9 @@ class PdfEditorApp(tk.Tk):
             c.bind("<ButtonPress-2>", lambda e, cc=c: self._pan_start(e, cc))
             c.bind("<B2-Motion>", lambda e, cc=c: self._pan_move(e, cc))
             c.bind("<Configure>", lambda e: self._schedule_render())
-        self.canvas.bind("<Button-1>", self.on_canvas_click)
+        self.canvas.bind("<ButtonPress-1>", self.on_canvas_press)
+        self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
+        self.canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
         self.bind("<Control-Key-0>", lambda e: self.set_zoom(1.0))
         self.bind("<Control-plus>", lambda e: self.set_zoom(self.zoom * 1.25))
         self.bind("<Control-equal>", lambda e: self.set_zoom(self.zoom * 1.25))
@@ -734,6 +737,8 @@ class PdfEditorApp(tk.Tk):
         ttk.Radiobutton(sf, text="所有相同文本", value="all", variable=self.v_scope,
                         command=self._on_draft_change).pack(side="left")
         ttk.Radiobutton(sf, text="仅选中这一处", value="single", variable=self.v_scope,
+                        command=self._on_draft_change).pack(side="left", padx=(8, 0))
+        ttk.Radiobutton(sf, text="框选的这一段", value="range", variable=self.v_scope,
                         command=self._on_draft_change).pack(side="left", padx=(8, 0))
 
         # 描边（伪加粗）：默认关。原文是"伪加粗"（用描边假装粗体）时才需要；
@@ -1240,7 +1245,8 @@ class PdfEditorApp(tk.Tk):
             pass
         msg = f"本页可选取片段 {n} 个"
         if t3:
-            msg += f"（其中 {t3} 个是 Type3 内嵌字形，常见于网页/MD 转 PDF，粒度可能细到单个字）"
+            msg += (f"（其中 {t3} 个是 Type3 内嵌字形，常见于网页/MD 转 PDF，"
+                    f"粒度可能细到单个字 —— 可按住左键框选一行）")
         if bad:
             msg += f"；{bad} 个字形没有文字映射，原文可能是乱码（可在「原文」里手改）"
         self._log(msg)
@@ -1558,6 +1564,55 @@ class PdfEditorApp(tk.Tk):
             self._toggle_after(autofit=True)
 
     # ================= 画布交互 =================
+    DRAG_MIN = 3          # 拖动不足这么多像素就算单击，不算框选
+
+    def _evt_pt(self, event):
+        """事件坐标 -> 页面坐标。"""
+        return (self.canvas.canvasx(event.x) / self.zoom,
+                self.canvas.canvasy(event.y) / self.zoom)
+
+    def on_canvas_press(self, event):
+        """左键按下：先记锚点，等松开时再决定是「单击」还是「框选」。"""
+        if self.orig is None:
+            return
+        x, y = self._evt_pt(event)
+        self._drag = {"x0": x, "y0": y, "x1": x, "y1": y,
+                      "moved": False, "pick": bool(self._picking), "item": None}
+
+    def on_canvas_drag(self, event):
+        """拖动中：画选框。Tk 没有透明度，用网纹填充 + 虚线边框代替。"""
+        d = self._drag
+        if not d or d["pick"] or self.orig is None:
+            return
+        x, y = self._evt_pt(event)
+        d["x1"], d["y1"] = x, y
+        if (abs(x - d["x0"]) * self.zoom < self.DRAG_MIN
+                and abs(y - d["y0"]) * self.zoom < self.DRAG_MIN):
+            return
+        d["moved"] = True
+        box = (d["x0"] * self.zoom, d["y0"] * self.zoom, x * self.zoom, y * self.zoom)
+        if d["item"] is None:
+            d["item"] = self.canvas.create_rectangle(
+                *box, outline=self._pal["mark"], dash=(4, 3),
+                fill=self._pal["mark"], stipple="gray25", tags="rubber")
+        else:
+            self.canvas.coords(d["item"], *box)
+
+    def on_canvas_release(self, event):
+        """松开左键：没拖动 = 原来的单击（含取色器）；拖动了 = 框选。"""
+        d, self._drag = self._drag, None
+        if not d or self.orig is None:
+            return
+        if d["item"] is not None:
+            self.canvas.delete(d["item"])
+        if not d["moved"] or d["pick"]:
+            self.on_canvas_click(event)
+            return
+        x, y = self._evt_pt(event)
+        self._range_select(fitz.Rect(min(d["x0"], x), min(d["y0"], y),
+                                     max(d["x0"], x), max(d["y0"], y)),
+                           anchor=fitz.Point(d["x0"], d["y0"]))
+
     def on_canvas_click(self, event):
         if self.orig is None:
             return
@@ -1580,6 +1635,78 @@ class PdfEditorApp(tk.Tk):
         d = self._span_at(fitz.Point(x, y))
         if not d:
             return
+        if self.v_scope.get() == "range":     # 这一次是单击，不是框选
+            self.v_scope.set("single")
+        self._apply_span_choice(d)
+
+    def _range_select(self, rect, anchor=None):
+        """框选：取「锚点那一行」内与矩形相交的片段，合并成一条 range 规则。
+
+        为什么先只支持一行：跨行的片段并成一条规则后只有一条基线，新文字会全挤在
+        第一行上（跨行重排是下一步）。限一行之后，Type3 那种"一个字一个片段"的
+        文件就能一次圈到一整句。
+        """
+        anchor = anchor or fitz.Point(rect.x0, rect.y0)
+        probe = fitz.Rect(rect)
+        # 几乎水平的拖动矩形高度接近 0（无效矩形），intersects 会判成不相交 —— 撑开一点
+        if probe.y1 - probe.y0 < 0.5:
+            probe.y0 -= 0.5
+            probe.y1 += 0.5
+        if probe.x1 - probe.x0 < 0.5:
+            probe.x0 -= 0.5
+            probe.x1 += 0.5
+        hit = [d for d in self._span_dicts(self.page_no) if d["rect"].intersects(probe)]
+        if not hit:
+            self._log("框选范围内没有文字（本页可能没有文字层，点选也不可用）")
+            self._update_hint()
+            return
+        # 锚点所在行：优先"圈住了锚点"的片段，否则取纵向最近的那一段
+        base = next((d for d in hit if d["rect"].contains(anchor)), None)
+        if base is None:
+            base = min(hit, key=lambda d: min(abs(d["rect"].y0 - anchor.y),
+                                              abs(d["rect"].y1 - anchor.y)))
+        y0, y1 = base["rect"].y0 - 1.0, base["rect"].y1 + 1.0
+        mid = lambda d: (d["rect"].y0 + d["rect"].y1) / 2        # noqa: E731
+        sel = sorted((d for d in hit if y0 <= mid(d) <= y1), key=lambda d: d["rect"].x0)
+        if not sel:
+            return
+        if len(sel) < len(hit):
+            self._log("框选跨了多行：暂时只取锚点那一行（跨行替换还没做）")
+        # 样式取"出现最多"的那一种，避免个别混排字把整段带偏
+        cnt = {}
+        for d in sel:
+            k = (d["font"], round(float(d["size"]), 1), int(d["flags"]), int(d["color"]))
+            cnt[k] = cnt.get(k, 0) + 1
+        key = max(cnt, key=lambda k: cnt[k])
+        union = fitz.Rect(sel[0]["rect"])
+        for d in sel[1:]:
+            union |= d["rect"]
+        merged = {"rect": union, "text": self._join_selected(sel),
+                  "font": key[0], "size": key[1], "flags": key[2], "color": key[3]}
+        self.v_scope.set("range")             # 框选 = 只改这一段
+        self._apply_span_choice(merged, count=len(sel))
+        if len(cnt) > 1:
+            self._log(f"提示：选区里有 {len(cnt)} 种样式，已统一按 {key[0]} {fmt_num(key[1])}pt 处理")
+
+    @staticmethod
+    def _join_selected(sel):
+        """拼接选中的片段文本；片段之间有空隙就补一个空格。
+
+        PDF 里词间空格通常不是字符，而是字形之间的空隙 —— 不补的话
+        "Hello world" 会粘成 "Helloworld"（中文一般没空隙，不受影响）。
+        """
+        out, prev = "", None
+        for d in sel:
+            if prev is not None:
+                gap = d["rect"].x0 - prev["rect"].x1
+                if gap > 0.25 * max(float(d["size"]), 1.0) and not out.endswith(" "):
+                    out += " "
+            out += d["text"]
+            prev = d
+        return out
+
+    def _apply_span_choice(self, d, count=1):
+        """把一个片段（或框选合并后的结果）填进表单。"""
         rect, text, font, size = d["rect"], d["text"], d["font"], d["size"]
         self._sel_bbox = rect
         self._set_e_old(text)
@@ -1607,7 +1734,8 @@ class PdfEditorApp(tk.Tk):
         self._update_add_state()
         self.e_new.focus_set()
         self._update_hint()
-        self._log(f'选中: {text!r} → 字体 {font or "?"} / {info["family"]}, {fmt_num(size)}pt')
+        head = f"已框选 {count} 个片段" if count > 1 else "选中"
+        self._log(f'{head}: {text!r} → 字体 {font or "?"} / {info["family"]}, {fmt_num(size)}pt')
         if self.e_new.get().strip():
             self._enable_after()
         self._schedule_draft_preview()
@@ -1709,8 +1837,8 @@ class PdfEditorApp(tk.Tk):
             except Exception:
                 rule["left_border_x"] = None            # 还没定位到左边框
             rule["left_gap"] = self._gap_value() * size
-        if self.v_scope.get() == "single":
-            rule["scope"] = "single"
+        if self.v_scope.get() in ("single", "range"):
+            rule["scope"] = self.v_scope.get()
             rule["page"] = self.page_no
             if self._sel_bbox is not None:
                 rule["bbox"] = [round(v, 2) for v in (self._sel_bbox.x0, self._sel_bbox.y0,
@@ -1801,7 +1929,7 @@ class PdfEditorApp(tk.Tk):
     def _refresh_rules(self):
         self.tree.delete(*self.tree.get_children())
         for i, r in enumerate(self.rules):
-            scope = "  ·仅此处" if r.get("scope") == "single" else ""
+            scope = {"single": "  ·仅此处", "range": "  ·框选段"}.get(r.get("scope"), "")
             self.tree.insert("", "end", iid=str(i),
                              values=(f"{r['old']}  →  {r['new']}{scope}",))
         self.rules_frame.configure(text=f"修改清单  ({len(self.rules)})")

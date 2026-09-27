@@ -637,7 +637,38 @@ def collect_targets(doc, repls, cfg=None):
                     continue
             origins = [tuple(c["origin"]) for c in span["chars"]]
             found.append((page, bbox, origins, rule, span))
-    return found
+    return _merge_ranges(found)
+
+
+def _merge_ranges(found):
+    """把 scope=="range" 命中的多个片段并成一条目标。
+
+    框选一段话在这类 PDF 里会命中很多片段（Type3 常常一个字一个片段），
+    合并后 bbox 取并集、逐字基点按阅读顺序拼接 —— 这样 apply_replacements /
+    compute_positions 一行都不用改，就能整段重排（同一行内）。
+    """
+    merged = {}
+    for page, bbox, origins, rule, _span in found:
+        if rule.get("scope") == "range":
+            key = id(rule)
+            if key not in merged:
+                merged[key] = [page, fitz.Rect(bbox), list(origins), rule, None]
+            else:
+                merged[key][1] |= fitz.Rect(bbox)
+                merged[key][2].extend(origins)
+    if not merged:
+        return found
+    out, done = [], set()
+    for page, bbox, origins, rule, span in found:
+        if rule.get("scope") == "range":
+            key = id(rule)
+            if key in done:
+                continue
+            done.add(key)
+            out.append(tuple(merged[key]))
+        else:
+            out.append((page, bbox, origins, rule, span))
+    return out
 
 
 def _font_metrics(font_file: str):
