@@ -1655,7 +1655,10 @@ class PdfEditorApp(tk.Tk):
         if probe.x1 - probe.x0 < 0.5:
             probe.x0 -= 0.5
             probe.x1 += 0.5
-        hit = [d for d in self._span_dicts(self.page_no) if d["rect"].intersects(probe)]
+        # 判据与 pdf_edit_core 的 range 匹配**共用同一个函数**：
+        # 两边口径一致，"界面高亮选了哪些"就等于"规则实际会改哪些"。
+        hit = [d for d in self._span_dicts(self.page_no)
+               if core.center_in_rect(probe, d["rect"])]
         if not hit:
             self._log("框选范围内没有文字（本页可能没有文字层，点选也不可用）")
             self._update_hint()

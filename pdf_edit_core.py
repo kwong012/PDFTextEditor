@@ -589,6 +589,25 @@ def _bbox_close(a: fitz.Rect, b, tol: float = 1.5) -> bool:
             and abs(a.x1 - b.x1) < tol and abs(a.y1 - b.y1) < tol)
 
 
+CENTER_EPS = 0.01       # 像素级余量：中心点"正好压在选区边上"不算选中
+
+
+def center_in_rect(rect, span_rect) -> bool:
+    """片段中心点是否落在选区**内部**（贴边不算）。
+
+    用于 range（框选）匹配，界面与 core 共用同一个判据。为什么不用
+    Rect.intersects：规则里的 bbox 存盘时舍入到 2 位小数，用相交判定会让边界
+    退进紧邻片段内部（哪怕只重叠 0.0005pt），于是多删一个相邻的字。而有些
+    全角标点（如「）。」这类）字形框本来就互相重叠，用"中心点 + 贴边不算"
+    就能同时避开这两种误选。
+    """
+    r = fitz.Rect(rect)
+    cx = (span_rect.x0 + span_rect.x1) / 2
+    cy = (span_rect.y0 + span_rect.y1) / 2
+    return (r.x0 + CENTER_EPS <= cx <= r.x1 - CENTER_EPS
+            and r.y0 + CENTER_EPS <= cy <= r.y1 - CENTER_EPS)
+
+
 def iter_spans(doc, page_no=None):
     """遍历文本片段，yield (pno, page, span_dict, text)。
 
@@ -627,7 +646,9 @@ def collect_targets(doc, repls, cfg=None):
                 # 全文替换，还会被 _merge_ranges 跨页并成一条（实测能删掉整页文字）。
                 if not rbox or int(rule.get("page", -1)) != pno:
                     continue
-                if not bbox.intersects(fitz.Rect(rbox)):
+                # 判交用"片段中心点是否落进选区"（见 center_in_rect 的说明）：
+                # 对 bbox 存盘时的 2 位小数舍入完全不敏感，也不会被互相重叠的字形框骗到。
+                if not center_in_rect(rbox, bbox):
                     continue
             elif scope == "single" and rbox:
                 if rule.get("page") is not None and int(rule["page"]) != pno:
