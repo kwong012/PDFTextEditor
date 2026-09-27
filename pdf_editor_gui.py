@@ -239,6 +239,8 @@ class PdfEditorApp(tk.Tk):
         saved_theme = load_settings().get("theme")
         self._theme = saved_theme if saved_theme in THEMES else "light"
         self._pal = THEMES[self._theme]
+        self._icons = {}                 # 图标 PhotoImage 引用
+        self._icon_widgets = []          # [(控件, 固定配色或 None, 图标名)]
 
         self._apply_styles()
         self._build_ui()
@@ -377,6 +379,7 @@ class PdfEditorApp(tk.Tk):
                            insertbackground=p["fg"], selectbackground=p["sel_bg"],
                            selectforeground=p["sel_fg"], highlightthickness=0, bd=0)
         self.lbl_hint.configure(foreground=p["hint"])
+        self._load_icons()
         # tips 胶囊跟着换色
         self.pill.configure(bg=p["bg"])
         self.pill.itemconfigure(self._pill_shape, fill=p["primary"])
@@ -413,6 +416,19 @@ class PdfEditorApp(tk.Tk):
         self.mb_more.configure(menu=menu)
         self.mb_more.pack(side="right")
         self._menus = (menu,)
+
+    def _load_icons(self):
+        """按当前主题贴线条图标：浅色底用深灰线、深色底用浅灰线；绿色主按钮固定用白色那套。"""
+        folder = "dark" if self._theme == "dark" else "light"
+        for widget, fixed, name in getattr(self, "_icon_widgets", ()):
+            sub = fixed or folder
+            try:
+                img = tk.PhotoImage(file=resource_path(
+                    os.path.join("assets", "icons", sub, name + ".png")))
+            except Exception:
+                continue
+            widget.configure(image=img, compound="left")
+            self._icons[(sub, name)] = img      # 持有引用，防止被回收
 
     def _on_toggle_dark(self):
         self.set_theme("dark" if self.v_dark.get() else "light")
@@ -454,10 +470,15 @@ class PdfEditorApp(tk.Tk):
         bar = ttk.Frame(self, padding=(8, 6), style="Toolbar.TFrame")
         bar.pack(side="top", fill="x")
         ttk.Separator(self, orient="horizontal").pack(fill="x")     # 工具栏与内容的分界线
+        # ── 右端：设置 ▾（先占位，窄窗口时优先保证它可见）──
+        self._build_more_menu(bar)
+        ttk.Separator(bar, orient="vertical").pack(side="right", fill="y", padx=8)
         # ── 文件组：打开 / 另存为 ──
-        ttk.Button(bar, text="打开 PDF", command=self.open_pdf).pack(side="left")
-        ttk.Button(bar, text="另存为…", style="Accent.TButton",
-                   command=self.save_as).pack(side="left", padx=(6, 0))
+        self.btn_open = ttk.Button(bar, text="打开", command=self.open_pdf)
+        self.btn_open.pack(side="left")
+        self.btn_save = ttk.Button(bar, text="另存为…", style="Accent.TButton",
+                                   command=self.save_as)
+        self.btn_save.pack(side="left", padx=(6, 0))
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         # ── 页面组：翻页 ──
         ttk.Button(bar, text="◀", width=3, command=lambda: self.change_page(-1)).pack(side="left")
@@ -467,16 +488,18 @@ class PdfEditorApp(tk.Tk):
         ttk.Button(bar, text="▶", width=3, command=lambda: self.change_page(1)).pack(side="left")
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         # ── 视图组：对比预览 / 适应窗口 ──
-        ttk.Checkbutton(bar, text="对比预览", variable=self.show_after,
-                        style="Toolbar.TCheckbutton",
-                        command=self._on_toggle_after).pack(side="left")
-        ttk.Button(bar, text="适应窗口", command=self.autofit).pack(side="left", padx=(8, 0))
+        self.cb_compare = ttk.Checkbutton(bar, text="对比预览", variable=self.show_after,
+                                          style="Toolbar.TCheckbutton",
+                                          command=self._on_toggle_after)
+        self.cb_compare.pack(side="left")
+        self.btn_fit = ttk.Button(bar, text="适应窗口", command=self.autofit)
+        self.btn_fit.pack(side="left", padx=(8, 0))
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         # ── 缩放组（原独立一行的缩放条并进工具栏） ──
         ttk.Label(bar, text="缩放", style="Toolbar.TLabel").pack(side="left")
         self.zoom_var = tk.DoubleVar(value=self.zoom)
         self.scale = ttk.Scale(bar, from_=ZOOM_MIN * 100, to=ZOOM_MAX * 100,
-                               orient="horizontal", length=90, variable=self.zoom_var,
+                               orient="horizontal", length=80, variable=self.zoom_var,
                                command=self._on_slider)
         self.scale.pack(side="left", padx=(6, 4))
         self.e_zoom = ttk.Entry(bar, width=4)
@@ -489,8 +512,12 @@ class PdfEditorApp(tk.Tk):
         ttk.Button(bar, text="＋", width=3,
                    command=lambda: self.set_zoom(self.zoom * 1.25)).pack(side="left")
 
-        # ── 右端：设置 ▾ ──
-        self._build_more_menu(bar)
+        # 线条图标：跟随主题；绿色主按钮固定用白色那套
+        self._icon_widgets = [(self.btn_open, None, "open"),
+                              (self.btn_save, "accent", "save"),
+                              (self.cb_compare, None, "compare"),
+                              (self.btn_fit, None, "fit"),
+                              (self.mb_more, None, "settings")]
 
         content = tk.PanedWindow(self, orient="vertical", sashwidth=6, sashrelief="raised",
                                  background=self._pal["sash"], bd=0, opaqueresize=False)
