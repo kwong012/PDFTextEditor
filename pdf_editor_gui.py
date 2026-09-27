@@ -513,12 +513,6 @@ class PdfEditorApp(tk.Tk):
         self._style_widgets()
 
     def _build_edit_form(self, parent):
-        self.lbl_hint = ttk.Label(parent, text="", foreground=self._pal["accent"], wraplength=340, justify="left")
-        self.lbl_hint.pack(fill="x", pady=(0, 6))
-        # 宽度跟随右栏，避免固定 wraplength 把右栏最小宽度顶大
-        parent.bind("<Configure>",
-                    lambda e: self.lbl_hint.configure(wraplength=max(220, e.width - 24)))
-
         edit = ttk.LabelFrame(parent, text="编辑选中片段", padding=6)
         edit.pack(fill="x")
 
@@ -599,6 +593,12 @@ class PdfEditorApp(tk.Tk):
         ttk.Button(lb, text="另存为…", command=self.save_as).pack(side="right")
 
     def _build_log_pane(self, parent):
+        # 单行阶段提示：整窗通栏，正好在「日志」上方
+        self.lbl_hint = ttk.Label(parent, text="", foreground=self._pal["accent"],
+                                  anchor="w", justify="left")
+        self.lbl_hint.pack(side="top", fill="x", pady=(0, 3))
+        parent.bind("<Configure>",
+                    lambda e: self.lbl_hint.configure(wraplength=max(200, e.width - 12)))
         logf = ttk.LabelFrame(parent, text="日志", padding=4)
         logf.pack(fill="both", expand=True)
         sb = ttk.Scrollbar(logf, orient="vertical")
