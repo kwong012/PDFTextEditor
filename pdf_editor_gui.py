@@ -43,7 +43,7 @@ THEMES = {
         field="#ffffff",                      # 输入框、列表底
         border="#c9c9c9", btn="#e8e8e8", btn_hover="#dcdcdc",
         sel_bg="#cfe4ff", sel_fg="#1a1a1a",   # 选中项
-        head="#e3e3e3",                       # 表头
+        head="#d6d6d6",                       # 表头（比行底深一档，才像表头）
         sash="#c4c4c4",                       # 分隔条
         canvas="#e4e6e8",                     # 预览画布底色（页面四周）
         accent="#0066cc", ok="#00aa66", warn="#cc6600", pill_fg="#ffffff",
@@ -55,7 +55,7 @@ THEMES = {
         field="#3a3a3a",
         border="#4d4d4d", btn="#3a3a3a", btn_hover="#4a4a4a",
         sel_bg="#3f5b78", sel_fg="#ffffff",
-        head="#333333",
+        head="#454545",
         sash="#4a4a4a",
         canvas="#1c1c1c",
         accent="#4fc3f7", ok="#4ade80", warn="#fbbf24", pill_fg="#0b1f2a",
@@ -309,7 +309,7 @@ class PdfEditorApp(tk.Tk):
 
         st.configure("Treeview", background=p["field"], fieldbackground=p["field"],
                      foreground=p["fg"], bordercolor=p["border"],
-                     lightcolor=p["border"], darkcolor=p["border"], rowheight=22)
+                     lightcolor=p["border"], darkcolor=p["border"], rowheight=24)
         st.map("Treeview", background=[("selected", p["sel_bg"])],
                foreground=[("selected", p["sel_fg"])])
         st.configure("Treeview.Heading", background=p["head"], foreground=p["fg"],
@@ -602,9 +602,10 @@ class PdfEditorApp(tk.Tk):
         self.tree = ttk.Treeview(wrap, columns=("old", "new", "scope"), show="headings",
                                  height=6, yscrollcommand=sb.set)
         sb.configure(command=self.tree.yview)
-        for c, w, t in (("old", 120, "原文"), ("new", 140, "替换为"), ("scope", 56, "范围")):
+        for c, w, t in (("old", 170, "原文"), ("new", 190, "替换为"), ("scope", 64, "范围")):
             self.tree.heading(c, text=t)
             self.tree.column(c, width=w, anchor="w")
+        self.tree.column("scope", stretch=False)     # 「范围」列不该跟着窗口拉伸
         sb.pack(side="right", fill="y")
         self.tree.pack(side="left", fill="both", expand=True)
         lb = ttk.Frame(lst)
