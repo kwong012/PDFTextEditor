@@ -604,7 +604,7 @@ class PdfEditorApp(tk.Tk):
         # 日志：整窗底部通栏，可上下拖高度
         logpane = ttk.Frame(content, padding=(8, 4))
         self._build_log_pane(logpane)
-        content.add(logpane, stretch="never", minsize=70, height=150)
+        content.add(logpane, stretch="never", minsize=90, height=150)
 
         self._style_widgets()
 
@@ -734,7 +734,7 @@ class PdfEditorApp(tk.Tk):
         body = ttk.Frame(logf)
         body.pack(fill="both", expand=True, pady=(4, 0))
         sb = ttk.Scrollbar(body, orient="vertical")
-        self.log = tk.Text(body, height=3, width=28, wrap="word", yscrollcommand=sb.set)
+        self.log = tk.Text(body, height=5, width=28, wrap="word", yscrollcommand=sb.set)
         sb.configure(command=self.log.yview)
         sb.pack(side="right", fill="y")
         self.log.pack(side="left", fill="both", expand=True)
