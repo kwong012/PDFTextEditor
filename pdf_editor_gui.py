@@ -29,6 +29,8 @@ APP_TITLE = "PDFTextEditor"
 # 字体：界面统一中文字体；标题用粗体着重
 UI_FONT = ("Microsoft YaHei UI", 9)
 UI_FONT_BOLD = ("Microsoft YaHei UI", 9, "bold")
+UI_FONT_TITLE = ("Microsoft YaHei UI", 10, "bold")     # 分组标题：比正文大一档
+UI_FONT_SMALL = ("Microsoft YaHei UI", 8)              # 灰色微提示
 ZOOM_MIN, ZOOM_MAX = 0.2, 5.0
 TILE_MARGIN = 0.5          # 缓冲边 = 视口尺寸的 50%
 RENDER_DEBOUNCE_MS = 40
@@ -40,10 +42,11 @@ THEMES = {
     "light": dict(
         label="浅色",
         bg="#f0f0f0", fg="#1a1a1a",           # 面板底色 / 文字
+        bar_bg="#e3e3e3",                     # 工具栏底色（与面板区分）
         field="#ffffff",                      # 输入框、列表底
         border="#c9c9c9", btn="#e8e8e8", btn_hover="#dcdcdc",
         sel_bg="#cfe4ff", sel_fg="#1a1a1a",   # 选中项
-        head="#e3e3e3",                       # 表头
+        head="#d6d6d6",                       # 表头（比行底深一档，才像表头）
         sash="#c4c4c4",                       # 分隔条
         canvas="#e4e6e8",                     # 预览画布底色（页面四周）
         accent="#0066cc", ok="#00aa66", warn="#cc6600", pill_fg="#ffffff",
@@ -52,10 +55,11 @@ THEMES = {
     "dark": dict(
         label="深色",
         bg="#2b2b2b", fg="#e6e6e6",
+        bar_bg="#333333",
         field="#3a3a3a",
         border="#4d4d4d", btn="#3a3a3a", btn_hover="#4a4a4a",
         sel_bg="#3f5b78", sel_fg="#ffffff",
-        head="#333333",
+        head="#454545",
         sash="#4a4a4a",
         canvas="#1c1c1c",
         accent="#4fc3f7", ok="#4ade80", warn="#fbbf24", pill_fg="#0b1f2a",
@@ -251,7 +255,7 @@ class PdfEditorApp(tk.Tk):
         except tk.TclError:
             pass
         style.configure(".", font=UI_FONT)
-        style.configure("TLabelframe.Label", font=UI_FONT_BOLD)
+        style.configure("TLabelframe.Label", font=UI_FONT_TITLE)
         style.configure("Treeview.Heading", font=UI_FONT_BOLD)
         self._style_ttk()
 
@@ -263,20 +267,53 @@ class PdfEditorApp(tk.Tk):
         st.configure("TLabel", background=p["bg"], foreground=p["fg"])
         st.configure("TLabelframe", background=p["bg"], bordercolor=p["border"],
                      relief="solid", borderwidth=1)
-        st.configure("TLabelframe.Label", background=p["bg"], foreground=p["fg"], font=UI_FONT_BOLD)
+        st.configure("TLabelframe.Label", background=p["bg"], foreground=p["fg"], font=UI_FONT_TITLE)
         st.configure("TSeparator", background=p["border"])
 
         st.configure("TButton", background=p["btn"], foreground=p["fg"],
                      bordercolor=p["border"], lightcolor=p["btn"], darkcolor=p["btn"],
-                     focuscolor=p["sel_bg"], padding=(8, 3))
+                     focuscolor=p["sel_bg"], padding=(10, 4))
         st.map("TButton",
                background=[("pressed", p["sel_bg"]), ("active", p["btn_hover"]), ("disabled", p["btn"])],
+               foreground=[("disabled", p["disabled"])])
+
+        # 主按钮：强调色实心（只有最关键的动作用）
+        st.configure("Accent.TButton", background=p["accent"], foreground=p["pill_fg"],
+                     bordercolor=p["accent"], lightcolor=p["accent"], darkcolor=p["accent"],
+                     focuscolor=p["accent"], padding=(12, 4))
+        st.map("Accent.TButton",
+               background=[("pressed", p["sel_bg"]), ("active", p["accent"]),
+                           ("disabled", p["btn"])],
+               foreground=[("disabled", p["disabled"])],
+               bordercolor=[("disabled", p["border"])],
+               lightcolor=[("disabled", p["btn"])],
+               darkcolor=[("disabled", p["btn"])])
+        # 次按钮：无边框"幽灵"样式
+        st.configure("Ghost.TButton", background=p["bg"], foreground=p["fg"],
+                     bordercolor=p["bg"], lightcolor=p["bg"], darkcolor=p["bg"],
+                     focuscolor=p["bg"], padding=(10, 4))
+        st.map("Ghost.TButton",
+               background=[("pressed", p["btn"]), ("active", p["btn_hover"]),
+                           ("disabled", p["bg"])],
                foreground=[("disabled", p["disabled"])])
 
         st.configure("TMenubutton", background=p["btn"], foreground=p["fg"],
                      arrowcolor=p["fg"], bordercolor=p["border"],
                      lightcolor=p["btn"], darkcolor=p["btn"], padding=(8, 3))
         st.map("TMenubutton", background=[("active", p["btn_hover"])],
+               foreground=[("disabled", p["disabled"])])
+
+        # 工具栏专用样式：底色与面板区分，控件背景跟着走
+        st.configure("Toolbar.TFrame", background=p["bar_bg"])
+        st.configure("Toolbar.TLabel", background=p["bar_bg"], foreground=p["fg"])
+        st.configure("Toolbar.TCheckbutton", background=p["bar_bg"], foreground=p["fg"],
+                     focuscolor=p["bar_bg"])
+        st.map("Toolbar.TCheckbutton", background=[("active", p["bar_bg"])],
+               foreground=[("disabled", p["disabled"])])
+        st.configure("Toolbar.TMenubutton", background=p["btn"], foreground=p["fg"],
+                     arrowcolor=p["fg"], bordercolor=p["border"],
+                     lightcolor=p["btn"], darkcolor=p["btn"], padding=(8, 3))
+        st.map("Toolbar.TMenubutton", background=[("active", p["btn_hover"])],
                foreground=[("disabled", p["disabled"])])
 
         for sty in ("TCheckbutton", "TRadiobutton"):
@@ -286,13 +323,13 @@ class PdfEditorApp(tk.Tk):
 
         st.configure("TEntry", fieldbackground=p["field"], foreground=p["fg"],
                      bordercolor=p["border"], lightcolor=p["border"], darkcolor=p["border"],
-                     insertcolor=p["fg"], padding=2)
+                     insertcolor=p["fg"], padding=(4, 3))
         st.map("TEntry", fieldbackground=[("disabled", p["bg"])],
                foreground=[("disabled", p["disabled"])])
 
         st.configure("TCombobox", fieldbackground=p["field"], background=p["btn"],
                      foreground=p["fg"], bordercolor=p["border"], arrowcolor=p["fg"],
-                     lightcolor=p["border"], darkcolor=p["border"], padding=2)
+                     lightcolor=p["border"], darkcolor=p["border"], padding=(4, 2))
         st.map("TCombobox",
                fieldbackground=[("readonly", p["field"]), ("disabled", p["bg"])],
                foreground=[("readonly", p["fg"]), ("disabled", p["disabled"])],
@@ -309,7 +346,7 @@ class PdfEditorApp(tk.Tk):
 
         st.configure("Treeview", background=p["field"], fieldbackground=p["field"],
                      foreground=p["fg"], bordercolor=p["border"],
-                     lightcolor=p["border"], darkcolor=p["border"], rowheight=22)
+                     lightcolor=p["border"], darkcolor=p["border"], rowheight=24)
         st.map("Treeview", background=[("selected", p["sel_bg"])],
                foreground=[("selected", p["sel_fg"])])
         st.configure("Treeview.Heading", background=p["head"], foreground=p["fg"],
@@ -357,7 +394,7 @@ class PdfEditorApp(tk.Tk):
 
     def _build_more_menu(self, parent):
         """把不常用的功能收进工具栏右侧的「设置 ▾」下拉，避免窄窗口被挤掉。"""
-        self.mb_more = ttk.Menubutton(parent, text="设置 ▾")
+        self.mb_more = ttk.Menubutton(parent, text="设置 ▾", style="Toolbar.TMenubutton")
         menu = tk.Menu(self.mb_more, tearoff=0)
         # 只有浅/深两套，直接点一下切换（勾选状态 = 当前是否深色）
         self.v_dark = tk.BooleanVar(value=(self._theme == "dark"))
@@ -409,24 +446,28 @@ class PdfEditorApp(tk.Tk):
             pass
 
     def _build_ui(self):
-        bar = ttk.Frame(self, padding=4)
+        bar = ttk.Frame(self, padding=(6, 5), style="Toolbar.TFrame")
         bar.pack(side="top", fill="x")
+        ttk.Separator(self, orient="horizontal").pack(fill="x")     # 工具栏与内容的分界线
         ttk.Button(bar, text="打开 PDF", command=self.open_pdf).pack(side="left")
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Button(bar, text="◀", width=3, command=lambda: self.change_page(-1)).pack(side="left")
-        self.lbl_page = ttk.Label(bar, text="0/0", width=7, anchor="center")
+        self.lbl_page = ttk.Label(bar, text="0/0", width=7, anchor="center",
+                                  style="Toolbar.TLabel")
         self.lbl_page.pack(side="left")
         ttk.Button(bar, text="▶", width=3, command=lambda: self.change_page(1)).pack(side="left")
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Button(bar, text="自动标定加粗", command=self.auto_calibrate).pack(side="left")
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Checkbutton(bar, text="对比预览", variable=self.show_after,
+                        style="Toolbar.TCheckbutton",
                         command=self._on_toggle_after).pack(side="left")
         ttk.Button(bar, text="适应窗口", command=self.autofit).pack(side="left")
 
         # 右端动作区：「设置 ▾」在最右，「另存为…」紧挨其左（与右栏右缘同一条竖线）
         self._build_more_menu(bar)
-        ttk.Button(bar, text="另存为…", command=self.save_as).pack(side="right", padx=(0, 8))
+        ttk.Button(bar, text="另存为…", style="Accent.TButton",
+                   command=self.save_as).pack(side="right", padx=(0, 8))
 
         content = tk.PanedWindow(self, orient="vertical", sashwidth=6, sashrelief="raised",
                                  background=self._pal["sash"], bd=0, opaqueresize=False)
@@ -458,7 +499,7 @@ class PdfEditorApp(tk.Tk):
         ttk.Button(zbar, text="－", width=3, command=lambda: self.set_zoom(self.zoom / 1.25)).pack(side="left")
         ttk.Button(zbar, text="＋", width=3, command=lambda: self.set_zoom(self.zoom * 1.25)).pack(side="left")
         self.lbl_mousehint = ttk.Label(zbar, text="滚轮滚动 · Ctrl+滚轮缩放 · Shift+滚轮横向",
-                                       foreground=self._pal["muted"])
+                                       foreground=self._pal["muted"], font=UI_FONT_SMALL)
         self.lbl_mousehint.pack(side="left", padx=10)
 
         # 画布上方一行：「tips」胶囊 + 当前阶段提示（替代原来的「原图 / 改后」标签）
@@ -588,9 +629,10 @@ class PdfEditorApp(tk.Tk):
 
         btns = ttk.Frame(edit)
         btns.grid(row=6, column=0, columnspan=3, sticky="we", pady=(8, 0))
-        self.btn_add = ttk.Button(btns, text="添加到清单", command=self.add_rule)
+        self.btn_add = ttk.Button(btns, text="添加到清单", style="Accent.TButton", command=self.add_rule)
         self.btn_add.pack(side="left")
-        ttk.Button(btns, text="取消选择", command=self.clear_selection).pack(side="left", padx=4)
+        ttk.Button(btns, text="取消选择", style="Ghost.TButton",
+                   command=self.clear_selection).pack(side="left", padx=4)
         edit.columnconfigure(1, weight=1)
 
     def _build_rules_pane(self, parent):
@@ -602,15 +644,17 @@ class PdfEditorApp(tk.Tk):
         self.tree = ttk.Treeview(wrap, columns=("old", "new", "scope"), show="headings",
                                  height=6, yscrollcommand=sb.set)
         sb.configure(command=self.tree.yview)
-        for c, w, t in (("old", 120, "原文"), ("new", 140, "替换为"), ("scope", 56, "范围")):
+        for c, w, t in (("old", 170, "原文"), ("new", 190, "替换为"), ("scope", 64, "范围")):
             self.tree.heading(c, text=t)
             self.tree.column(c, width=w, anchor="w")
+        self.tree.column("scope", stretch=False)     # 「范围」列不该跟着窗口拉伸
         sb.pack(side="right", fill="y")
         self.tree.pack(side="left", fill="both", expand=True)
         lb = ttk.Frame(lst)
         lb.pack(fill="x", pady=(4, 0))
-        ttk.Button(lb, text="删除选中", command=self.del_rule).pack(side="left")
-        ttk.Button(lb, text="清空", command=self.clear_rules).pack(side="left", padx=4)
+        ttk.Button(lb, text="删除选中", style="Ghost.TButton", command=self.del_rule).pack(side="left")
+        ttk.Button(lb, text="清空", style="Ghost.TButton",
+                   command=self.clear_rules).pack(side="left", padx=4)
         ttk.Button(lb, text="另存为…", command=self.save_as).pack(side="right")
 
     def _build_log_pane(self, parent):
