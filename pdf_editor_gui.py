@@ -723,13 +723,23 @@ class PdfEditorApp(tk.Tk):
         self.tree.pack(side="left", fill="both", expand=True)
 
     def _build_log_pane(self, parent):
-        logf = ttk.LabelFrame(parent, text="日志", padding=4)
+        logf = ttk.LabelFrame(parent, text="日志", padding=6)
         logf.pack(fill="both", expand=True)
-        sb = ttk.Scrollbar(logf, orient="vertical")
-        self.log = tk.Text(logf, height=4, width=28, wrap="word", yscrollcommand=sb.set)
+        head = ttk.Frame(logf)
+        head.pack(fill="x")
+        ttk.Label(head, text="最近的消息", style="Muted.TLabel").pack(side="left")
+        ttk.Button(head, text="清空", style="Ghost.TButton",
+                   command=self._clear_log).pack(side="right")
+        body = ttk.Frame(logf)
+        body.pack(fill="both", expand=True, pady=(4, 0))
+        sb = ttk.Scrollbar(body, orient="vertical")
+        self.log = tk.Text(body, height=3, width=28, wrap="word", yscrollcommand=sb.set)
         sb.configure(command=self.log.yview)
         sb.pack(side="right", fill="y")
         self.log.pack(side="left", fill="both", expand=True)
+
+    def _clear_log(self):
+        self.log.delete("1.0", "end")
 
     def _apply_minsizes(self):
         """按"完整显示所需的最小尺寸"设置 minsize，避免拖到遮挡/裁切。"""
