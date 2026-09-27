@@ -44,9 +44,9 @@ THEMES = {
         border="#c9c9c9", btn="#e8e8e8", btn_hover="#dcdcdc",
         sel_bg="#cfe4ff", sel_fg="#1a1a1a",   # 选中项
         head="#e3e3e3",                       # 表头
-        sash="#d0d0d0",                       # 分隔条
-        canvas="#3b3b3b",                     # 预览画布底色（页面四周）
-        accent="#0066cc", ok="#00aa66", warn="#cc6600",
+        sash="#c4c4c4",                       # 分隔条
+        canvas="#e4e6e8",                     # 预览画布底色（页面四周）
+        accent="#0066cc", ok="#00aa66", warn="#cc6600", pill_fg="#ffffff",
         muted="#777777", mark="#e53935", disabled="#a0a0a0",
     ),
     "dark": dict(
@@ -56,9 +56,9 @@ THEMES = {
         border="#4d4d4d", btn="#3a3a3a", btn_hover="#4a4a4a",
         sel_bg="#3f5b78", sel_fg="#ffffff",
         head="#333333",
-        sash="#1f1f1f",
+        sash="#4a4a4a",
         canvas="#1c1c1c",
-        accent="#4fc3f7", ok="#4ade80", warn="#fbbf24",
+        accent="#4fc3f7", ok="#4ade80", warn="#fbbf24", pill_fg="#0b1f2a",
         muted="#9a9a9a", mark="#ff5252", disabled="#6f6f6f",
     ),
 }
@@ -86,10 +86,27 @@ def save_settings(data: dict) -> None:
     except Exception:
         pass
 
-STEPS = ("① 点左侧预览里的文字\n"
-         "② 填\"替换为\"\n"
-         "③ 点\"添加到清单\"\n"
-         "④ 点\"另存为\"导出")
+# 单行提示：按当前操作阶段只显示一条（序号交给「tips」胶囊，文案里不再带序号）
+HINT_OPEN = "先「打开 PDF」"
+HINT_PICK = "单击左侧预览里的文字"
+HINT_TYPE = "在「替换为」里填新文字"
+HINT_ADD = "点「添加到清单」"
+HINT_MORE = "继续点文字加下一条，或点「另存为…」导出"
+
+
+def make_pill(parent, text, canvas_bg, fill, text_color, font):
+    """画一个圆角胶囊徽标，返回 (canvas, 形状 id, 文字 id)，便于换主题时重新上色。"""
+    from tkinter import font as tkfont
+    f = tkfont.Font(font=font)
+    w = f.measure(text) + 16
+    h = f.metrics("linespace") + 2
+    cv = tk.Canvas(parent, width=w, height=h, highlightthickness=0, bd=0, bg=canvas_bg)
+    r = h / 2.0
+    pts = [r, 0, w - r, 0, w, 0, w, r, w, h - r, w, h, w - r, h,
+           r, h, 0, h, 0, h - r, 0, r, 0, 0]
+    shape = cv.create_polygon(pts, smooth=True, fill=fill)
+    tid = cv.create_text(w / 2, h / 2, text=text, fill=text_color, font=font)
+    return cv, shape, tid
 
 HELP_TEXT = f"""PDFTextEditor · 使用说明
 
@@ -128,7 +145,7 @@ HELP_TEXT = f"""PDFTextEditor · 使用说明
 
 ────────────────────────────
 【界面主题】
-工具栏右侧「设置 ▾」→「主题」可切换「浅色 / 深色」，选择会被记住，下次启动沿用。
+工具栏右侧「设置 ▾」→「深色主题」点一下即可切换（勾选 = 深色），选择会被记住，下次启动沿用。
 （深色模式下预览画布、日志栏、修改清单、以及 Windows 标题栏都会一起变暗。）
 导入 / 导出 config、帮助也在这个「设置」菜单里。
 
@@ -217,7 +234,7 @@ class PdfEditorApp(tk.Tk):
 
         self._apply_styles()
         self._build_ui()
-        self._set_hint(STEPS)
+        self._update_hint()
         self._log('就绪. 请先点"打开 PDF". 第一次用请看"帮助".')
         self.after(80, self._on_configure)
         self.after(200, self._apply_minsizes)
@@ -253,7 +270,7 @@ class PdfEditorApp(tk.Tk):
                      bordercolor=p["border"], lightcolor=p["btn"], darkcolor=p["btn"],
                      focuscolor=p["sel_bg"], padding=(8, 3))
         st.map("TButton",
-               background=[("pressed", p["sel_bg"]), ("active", p["btn_hover"]), ("disabled", p["bg"])],
+               background=[("pressed", p["sel_bg"]), ("active", p["btn_hover"]), ("disabled", p["btn"])],
                foreground=[("disabled", p["disabled"])])
 
         st.configure("TMenubutton", background=p["btn"], foreground=p["fg"],
@@ -319,9 +336,11 @@ class PdfEditorApp(tk.Tk):
                            insertbackground=p["fg"], selectbackground=p["sel_bg"],
                            selectforeground=p["sel_fg"], highlightthickness=0, bd=0)
         self.lbl_hint.configure(foreground=p["accent"])
-        self.lbl_before.configure(foreground=p["ok"])
-        self.lbl_after.configure(foreground=p["warn"])
         self.lbl_mousehint.configure(foreground=p["muted"])
+        # tips 胶囊跟着换色
+        self.pill.configure(bg=p["bg"])
+        self.pill.itemconfigure(self._pill_shape, fill=p["accent"])
+        self.pill.itemconfigure(self._pill_text, fill=p["pill_fg"])
         help_txt = getattr(self, "_help_txt", None)
         if help_txt is not None and help_txt.winfo_exists():
             help_txt.configure(background=p["field"], foreground=p["fg"],
@@ -340,12 +359,10 @@ class PdfEditorApp(tk.Tk):
         """把不常用的功能收进工具栏右侧的「设置 ▾」下拉，避免窄窗口被挤掉。"""
         self.mb_more = ttk.Menubutton(parent, text="设置 ▾")
         menu = tk.Menu(self.mb_more, tearoff=0)
-        theme_menu = tk.Menu(menu, tearoff=0)
-        self.v_theme = tk.StringVar(value=self._theme)
-        for key in THEME_ORDER:
-            theme_menu.add_radiobutton(label=THEMES[key]["label"], value=key,
-                                       variable=self.v_theme, command=self._on_theme_change)
-        menu.add_cascade(label="主题", menu=theme_menu)
+        # 只有浅/深两套，直接点一下切换（勾选状态 = 当前是否深色）
+        self.v_dark = tk.BooleanVar(value=(self._theme == "dark"))
+        menu.add_checkbutton(label="深色主题", variable=self.v_dark,
+                             command=self._on_toggle_dark)
         menu.add_separator()
         menu.add_command(label="导入 config…", command=self.import_config)
         menu.add_command(label="导出 config…", command=self.export_config)
@@ -353,14 +370,18 @@ class PdfEditorApp(tk.Tk):
         menu.add_command(label="帮助", command=self.show_help)
         self.mb_more.configure(menu=menu)
         self.mb_more.pack(side="right")
-        self._menus = (menu, theme_menu)
+        self._menus = (menu,)
 
-    def _on_theme_change(self, _event=None):
-        key = self.v_theme.get()
+    def _on_toggle_dark(self):
+        self.set_theme("dark" if self.v_dark.get() else "light")
+
+    def set_theme(self, key):
+        """切换主题（菜单与自检共用）。"""
         if key not in THEMES or key == self._theme:
             return
         self._theme = key
         self._pal = THEMES[key]
+        self.v_dark.set(key == "dark")
         self._style_ttk()
         self._style_widgets()
         data = load_settings()
@@ -391,22 +412,21 @@ class PdfEditorApp(tk.Tk):
         bar = ttk.Frame(self, padding=4)
         bar.pack(side="top", fill="x")
         ttk.Button(bar, text="打开 PDF", command=self.open_pdf).pack(side="left")
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Button(bar, text="◀", width=3, command=lambda: self.change_page(-1)).pack(side="left")
         self.lbl_page = ttk.Label(bar, text="0/0", width=7, anchor="center")
         self.lbl_page.pack(side="left")
         ttk.Button(bar, text="▶", width=3, command=lambda: self.change_page(1)).pack(side="left")
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Button(bar, text="自动标定加粗", command=self.auto_calibrate).pack(side="left")
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Checkbutton(bar, text="对比预览", variable=self.show_after,
                         command=self._on_toggle_after).pack(side="left")
-        ttk.Button(bar, text="适应窗口", command=self.autofit).pack(side="left", padx=(6, 0))
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
-        ttk.Button(bar, text="另存为…", command=self.save_as).pack(side="left")
+        ttk.Button(bar, text="适应窗口", command=self.autofit).pack(side="left")
 
-        # 不常用的收进「设置 ▾」下拉：主题 / 导入导出 config / 帮助
+        # 右端动作区：「设置 ▾」在最右，「另存为…」紧挨其左（与右栏右缘同一条竖线）
         self._build_more_menu(bar)
+        ttk.Button(bar, text="另存为…", command=self.save_as).pack(side="right", padx=(0, 8))
 
         content = tk.PanedWindow(self, orient="vertical", sashwidth=6, sashrelief="raised",
                                  background=self._pal["sash"], bd=0, opaqueresize=False)
@@ -420,7 +440,7 @@ class PdfEditorApp(tk.Tk):
 
         # ---- 左：缩放条 + 画布 ----
         left = ttk.Frame(outer)
-        outer.add(left, stretch="always", minsize=420)
+        outer.add(left, stretch="always", minsize=320)
 
         zbar = ttk.Frame(left, padding=(6, 4))
         zbar.pack(side="top", fill="x")
@@ -441,6 +461,16 @@ class PdfEditorApp(tk.Tk):
                                        foreground=self._pal["muted"])
         self.lbl_mousehint.pack(side="left", padx=10)
 
+        # 画布上方一行：「tips」胶囊 + 当前阶段提示（替代原来的「原图 / 改后」标签）
+        hdr = ttk.Frame(left)
+        hdr.pack(side="top", fill="x", padx=6, pady=(2, 2))
+        self.pill, self._pill_shape, self._pill_text = make_pill(
+            hdr, "tips", self._pal["bg"], self._pal["accent"], self._pal["pill_fg"], UI_FONT)
+        self.pill.pack(side="left")
+        self.lbl_hint = ttk.Label(hdr, text="", foreground=self._pal["accent"])
+        self.lbl_hint.pack(side="left", padx=(6, 0))
+        hdr.bind("<Configure>", lambda e: self.lbl_hint.configure(wraplength=max(200, e.width - 60)))
+
         body = ttk.Frame(left)
         body.pack(fill="both", expand=True)
         body.rowconfigure(0, weight=1)
@@ -451,17 +481,11 @@ class PdfEditorApp(tk.Tk):
         self.paned.grid(row=0, column=0, sticky="nsew")
 
         f_before = ttk.Frame(self.paned)
-        self.lbl_before = ttk.Label(f_before, text="原图 · 点这里选文字",
-                                    foreground=self._pal["ok"], font=UI_FONT_BOLD)
-        self.lbl_before.pack(side="top", anchor="w", padx=4)
         self.canvas = tk.Canvas(f_before, background=self._pal["canvas"], highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
-        self.paned.add(f_before, stretch="always", minsize=280)
+        self.paned.add(f_before, stretch="always", minsize=180)
 
         self.f_after = ttk.Frame(self.paned)
-        self.lbl_after = ttk.Label(self.f_after, text="改后 · 只读预览",
-                                   foreground=self._pal["warn"], font=UI_FONT_BOLD)
-        self.lbl_after.pack(side="top", anchor="w", padx=4)
         self.canvas_after = tk.Canvas(self.f_after, background=self._pal["canvas"], highlightthickness=0)
         self.canvas_after.pack(fill="both", expand=True)
 
@@ -495,7 +519,8 @@ class PdfEditorApp(tk.Tk):
         pane1 = ttk.Frame(self.right_paned)
         self._pane_edit = pane1
         self._build_edit_form(pane1)
-        self.right_paned.add(pane1, stretch="never", minsize=210, height=380)
+        # 初始高度交给 _apply_minsizes 按表单自然高度定，避免下方留死区
+        self.right_paned.add(pane1, stretch="never", minsize=210)
 
         pane2 = ttk.Frame(self.right_paned)
         self._build_rules_pane(pane2)
@@ -509,9 +534,6 @@ class PdfEditorApp(tk.Tk):
         self._style_widgets()
 
     def _build_edit_form(self, parent):
-        self.lbl_hint = ttk.Label(parent, text="", foreground=self._pal["accent"], wraplength=380, justify="left")
-        self.lbl_hint.pack(fill="x", pady=(0, 6))
-
         edit = ttk.LabelFrame(parent, text="编辑选中片段", padding=6)
         edit.pack(fill="x")
 
@@ -606,10 +628,11 @@ class PdfEditorApp(tk.Tk):
             self.update_idletasks()
         except tk.TclError:
             return
-        # 右栏最小宽度：取编辑表单请求宽度 + 边距
+        # 右栏最小宽度：取编辑表单请求宽度 + 边距；窄窗口时按窗宽比例封顶，避免内部约束打架
         try:
             need_w = max(self._pane_edit.winfo_reqwidth(),
-                         self.right_paned.winfo_reqwidth()) + 30
+                         self.right_paned.winfo_reqwidth()) + 16
+            need_w = min(need_w, max(320, int(self.winfo_width() * 0.36)))
             self.outer.paneconfigure(self.right_frame, minsize=need_w)
             # 初始宽度若小于最小宽度，直接撑到最小宽度，避免一上来就被裁切
             if self.right_frame.winfo_width() < need_w:
@@ -625,6 +648,8 @@ class PdfEditorApp(tk.Tk):
                 if avail and form_h + 110 > avail:
                     form_h = max(150, avail - 110)
                 self.right_paned.paneconfigure(panes[0], minsize=form_h)
+                # 把分隔条直接落到表单自然底边（只设 minsize 不会收回被撑开的高度）
+                self.right_paned.sash_place(0, 0, form_h)
             except tk.TclError:
                 pass
 
@@ -659,6 +684,18 @@ class PdfEditorApp(tk.Tk):
 
     def _set_hint(self, msg):
         self.lbl_hint.config(text=msg)
+
+    def _update_hint(self):
+        """按当前操作阶段只显示一条提示。"""
+        if self.orig is None:
+            msg = HINT_OPEN
+        elif self._sel_bbox is None:
+            msg = HINT_MORE if self.rules else HINT_PICK
+        elif not self.e_new.get().strip():
+            msg = HINT_TYPE
+        else:
+            msg = HINT_ADD
+        self._set_hint(msg)
 
     def _selected_font_path(self):
         idx = self.cb_font.current()
@@ -719,7 +756,7 @@ class PdfEditorApp(tk.Tk):
         self._refresh_rules()
         self.title(f"{APP_TITLE} — {os.path.basename(path)}")
         self._log(f"已打开: {path} ({self.orig.page_count} 页)")
-        self._set_hint(STEPS)
+        self._update_hint()
         self.update_idletasks()
         self.autofit()
 
@@ -999,7 +1036,7 @@ class PdfEditorApp(tk.Tk):
             panes = [str(p) for p in self.paned.panes()]
             if self.show_after.get():
                 if str(self.f_after) not in panes:
-                    self.paned.add(self.f_after, stretch="always", minsize=280)
+                    self.paned.add(self.f_after, stretch="always", minsize=180)
             else:
                 if str(self.f_after) in panes:
                     self.paned.forget(self.f_after)
@@ -1053,13 +1090,14 @@ class PdfEditorApp(tk.Tk):
         self._highlight(rect)
         self._update_add_state()
         self.e_new.focus_set()
-        self._set_hint(f'已选中"{text}", 填"替换为"后按回车')
+        self._update_hint()
         self._log(f'选中: {text!r} (字体 {font or "?"}, {size:.1f}pt)')
         if self.e_new.get().strip():
             self._enable_after()
 
     def _on_new_text(self):
         self._update_add_state()
+        self._update_hint()
         if self.e_old.get().strip() and self.e_new.get().strip():
             self._enable_after()
 
@@ -1092,13 +1130,13 @@ class PdfEditorApp(tk.Tk):
         self._clear_fields()
 
     def _clear_fields(self):
-        """清空「原文」「替换为」，取消左侧高亮，并回到四步引导。"""
+        """清空「原文」「替换为」，取消左侧高亮，并回到当前阶段提示。"""
         self.e_old.delete(0, "end")
         self.e_new.delete(0, "end")
         self._sel_bbox = None
         self.canvas.delete("sel")
         self._update_add_state()
-        self._set_hint(STEPS)
+        self._update_hint()
 
     # ================= 规则 =================
     def add_rule(self):
@@ -1169,6 +1207,7 @@ class PdfEditorApp(tk.Tk):
             scope = "仅此处" if r.get("scope") == "single" else "全部"
             self.tree.insert("", "end", iid=str(i), values=(r["old"], r["new"], scope))
         self._update_add_state()
+        self._update_hint()
 
     # ================= 文档构建 =================
     def _build_working(self):
@@ -1264,6 +1303,7 @@ class PdfEditorApp(tk.Tk):
             messagebox.showerror(APP_TITLE, f"保存失败: {e}")
             return
         self._log(f"已保存: {out}")
+        self._set_hint(f"✓ 已导出：{os.path.basename(out)}（可继续改，或再点「另存为…」）")
         messagebox.showinfo(APP_TITLE, f"已保存:\n{out}")
 
     # ================= config =================
