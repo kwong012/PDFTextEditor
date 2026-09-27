@@ -273,6 +273,26 @@ class PdfEditorApp(tk.Tk):
                background=[("pressed", p["sel_bg"]), ("active", p["btn_hover"]), ("disabled", p["btn"])],
                foreground=[("disabled", p["disabled"])])
 
+        # 主按钮：强调色实心（只有最关键的动作用）
+        st.configure("Accent.TButton", background=p["accent"], foreground=p["pill_fg"],
+                     bordercolor=p["accent"], lightcolor=p["accent"], darkcolor=p["accent"],
+                     focuscolor=p["accent"], padding=(12, 4))
+        st.map("Accent.TButton",
+               background=[("pressed", p["sel_bg"]), ("active", p["accent"]),
+                           ("disabled", p["btn"])],
+               foreground=[("disabled", p["disabled"])],
+               bordercolor=[("disabled", p["border"])],
+               lightcolor=[("disabled", p["btn"])],
+               darkcolor=[("disabled", p["btn"])])
+        # 次按钮：无边框"幽灵"样式
+        st.configure("Ghost.TButton", background=p["bg"], foreground=p["fg"],
+                     bordercolor=p["bg"], lightcolor=p["bg"], darkcolor=p["bg"],
+                     focuscolor=p["bg"], padding=(10, 4))
+        st.map("Ghost.TButton",
+               background=[("pressed", p["btn"]), ("active", p["btn_hover"]),
+                           ("disabled", p["bg"])],
+               foreground=[("disabled", p["disabled"])])
+
         st.configure("TMenubutton", background=p["btn"], foreground=p["fg"],
                      arrowcolor=p["fg"], bordercolor=p["border"],
                      lightcolor=p["btn"], darkcolor=p["btn"], padding=(8, 3))
@@ -426,7 +446,8 @@ class PdfEditorApp(tk.Tk):
 
         # 右端动作区：「设置 ▾」在最右，「另存为…」紧挨其左（与右栏右缘同一条竖线）
         self._build_more_menu(bar)
-        ttk.Button(bar, text="另存为…", command=self.save_as).pack(side="right", padx=(0, 8))
+        ttk.Button(bar, text="另存为…", style="Accent.TButton",
+                   command=self.save_as).pack(side="right", padx=(0, 8))
 
         content = tk.PanedWindow(self, orient="vertical", sashwidth=6, sashrelief="raised",
                                  background=self._pal["sash"], bd=0, opaqueresize=False)
@@ -588,9 +609,10 @@ class PdfEditorApp(tk.Tk):
 
         btns = ttk.Frame(edit)
         btns.grid(row=6, column=0, columnspan=3, sticky="we", pady=(8, 0))
-        self.btn_add = ttk.Button(btns, text="添加到清单", command=self.add_rule)
+        self.btn_add = ttk.Button(btns, text="添加到清单", style="Accent.TButton", command=self.add_rule)
         self.btn_add.pack(side="left")
-        ttk.Button(btns, text="取消选择", command=self.clear_selection).pack(side="left", padx=4)
+        ttk.Button(btns, text="取消选择", style="Ghost.TButton",
+                   command=self.clear_selection).pack(side="left", padx=4)
         edit.columnconfigure(1, weight=1)
 
     def _build_rules_pane(self, parent):
@@ -609,8 +631,9 @@ class PdfEditorApp(tk.Tk):
         self.tree.pack(side="left", fill="both", expand=True)
         lb = ttk.Frame(lst)
         lb.pack(fill="x", pady=(4, 0))
-        ttk.Button(lb, text="删除选中", command=self.del_rule).pack(side="left")
-        ttk.Button(lb, text="清空", command=self.clear_rules).pack(side="left", padx=4)
+        ttk.Button(lb, text="删除选中", style="Ghost.TButton", command=self.del_rule).pack(side="left")
+        ttk.Button(lb, text="清空", style="Ghost.TButton",
+                   command=self.clear_rules).pack(side="left", padx=4)
         ttk.Button(lb, text="另存为…", command=self.save_as).pack(side="right")
 
     def _build_log_pane(self, parent):
