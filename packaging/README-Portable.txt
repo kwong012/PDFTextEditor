@@ -36,7 +36,7 @@ _internal\          运行库（不要删、不要改）
 portable.flag       便携版标记（缓存会写在本文件夹内）
 data\               缓存与设置（字体缓存、主题偏好等），可随时删除
   data\fonts\       放自己下载的字体（可选）
-使用说明.txt        本文件
+README-Portable.txt 本文件（使用说明）
 
 【首次运行提示】
 本程序未做数字签名，Windows 可能弹出「Windows 已保护你的电脑」，

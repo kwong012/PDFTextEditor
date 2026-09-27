@@ -39,7 +39,7 @@
 - 系统要求：**64 位 Windows 10 及以上**
 - 别放在 `C:\Program Files` 这类需要管理员权限的目录，否则字体缓存写不进去
 - 首次运行若弹「Windows 已保护你的电脑」，点「更多信息 → 仍要运行」
-- 解压后目录里有 `使用说明.txt`；首次修改文字会在 `data\` 生成字体缓存，可随时删除
+- 解压后目录里有 `README-Portable.txt`（使用说明）；首次修改文字会在 `data\` 生成字体缓存，可随时删除
 
 > 想从源码运行、或自己重新出包，见下面的「源码运行」与「打包exe」。
 
@@ -155,7 +155,7 @@ powershell -ExecutionPolicy Bypass -File build_portable.ps1
 ```
 
 一条命令完成：读 `VERSION` → onedir 构建 → 复制到 `worktemp\portable\PDFTextEditor\` →
-放入 `portable.flag` 和 `packaging\使用说明.txt` → 压成
+放入 `portable.flag` 和 `packaging\README-Portable.txt` → 压成
 `worktemp\portable\PDFTextEditor-Portable-<版本>.zip`，并打印大小与 SHA256。
 
 
