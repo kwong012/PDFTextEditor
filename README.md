@@ -133,6 +133,46 @@ powershell -ExecutionPolicy Bypass -File build_portable.ps1
 放入 `portable.flag` 和 `packaging\使用说明.txt` → 压成
 `worktemp\portable\PDFTextEditor-Portable-<版本>.zip`，并打印大小与 SHA256。
 
+---
+
+## 第三方许可
+
+本项目**不对本仓库自身的代码声明许可证**（作者保留全部权利）；下面是打包产物里包含的
+第三方组件及其许可证，分发时请一并遵守。
+
+| 组件 | 许可证 | 说明 |
+| --- | --- | --- |
+| **PyMuPDF / MuPDF** | **AGPL-3.0 或 Artifex 商业许可（双授权）** | ⚠️ 强传染性 copyleft，见下 |
+| numpy | BSD-3-Clause | 宽松 |
+| Python 3.14 | PSF License | 宽松 |
+| Tcl/Tk | Tcl/Tk License（BSD 风格） | 宽松 |
+| fontTools | MIT | 宽松 |
+| OpenSSL | Apache-2.0 | 宽松 |
+| zlib | zlib License | 宽松 |
+
+许可证全文随产物一起分发，位于打包目录：
+
+```
+_internal\pymupdf-<版本>.dist-info\COPYING      ← PyMuPDF（AGPL-3.0）
+_internal\numpy-<版本>.dist-info\licenses\      ← numpy 及其内嵌组件
+_internal\_tk_data\license.terms                 ← Tcl/Tk
+```
+
+### ⚠️ 关于 PyMuPDF（AGPL-3.0）
+
+PDF 解析/重绘由 PyMuPDF 完成，它是 **AGPL-3.0 / Artifex 商业许可** 双授权。
+**自己使用不受影响**；一旦**对外分发**本程序（例如本仓库的 Releases），需满足其一：
+
+1. 按 AGPL-3.0 向拿到二进制的人**一并提供对应源码**（本仓库已随每个 tag 自动附带
+   `Source code (zip/tar.gz)`；若仓库为私有，接收者需有仓库访问权），并且本程序整体
+   以 AGPL-3.0 授权；
+2. 向 [Artifex](https://artifex.com/licensing/) 购买 **PyMuPDF 商业许可**；
+3. 换用许可宽松的 PDF 库（改动较大）。
+
+仅本地自用、不对外分发时，无上述义务。
+
+---
+
 
 
 
