@@ -239,6 +239,8 @@ class PdfEditorApp(tk.Tk):
         saved_theme = load_settings().get("theme")
         self._theme = saved_theme if saved_theme in THEMES else "light"
         self._pal = THEMES[self._theme]
+        self._icons = {}                 # 图标 PhotoImage 引用
+        self._icon_widgets = []          # [(控件, 固定配色或 None, 图标名)]
 
         self._apply_styles()
         self._build_ui()
@@ -377,7 +379,7 @@ class PdfEditorApp(tk.Tk):
                            insertbackground=p["fg"], selectbackground=p["sel_bg"],
                            selectforeground=p["sel_fg"], highlightthickness=0, bd=0)
         self.lbl_hint.configure(foreground=p["hint"])
-        self.lbl_mousehint.configure(foreground=p["muted"])
+        self._load_icons()
         # tips 胶囊跟着换色
         self.pill.configure(bg=p["bg"])
         self.pill.itemconfigure(self._pill_shape, fill=p["primary"])
@@ -405,6 +407,8 @@ class PdfEditorApp(tk.Tk):
         menu.add_checkbutton(label="深色主题", variable=self.v_dark,
                              command=self._on_toggle_dark)
         menu.add_separator()
+        menu.add_command(label="自动标定加粗", command=self.auto_calibrate)
+        menu.add_separator()
         menu.add_command(label="导入 config…", command=self.import_config)
         menu.add_command(label="导出 config…", command=self.export_config)
         menu.add_separator()
@@ -412,6 +416,19 @@ class PdfEditorApp(tk.Tk):
         self.mb_more.configure(menu=menu)
         self.mb_more.pack(side="right")
         self._menus = (menu,)
+
+    def _load_icons(self):
+        """按当前主题贴线条图标：浅色底用深灰线、深色底用浅灰线；绿色主按钮固定用白色那套。"""
+        folder = "dark" if self._theme == "dark" else "light"
+        for widget, fixed, name in getattr(self, "_icon_widgets", ()):
+            sub = fixed or folder
+            try:
+                img = tk.PhotoImage(file=resource_path(
+                    os.path.join("assets", "icons", sub, name + ".png")))
+            except Exception:
+                continue
+            widget.configure(image=img, compound="left")
+            self._icons[(sub, name)] = img      # 持有引用，防止被回收
 
     def _on_toggle_dark(self):
         self.set_theme("dark" if self.v_dark.get() else "light")
@@ -450,28 +467,57 @@ class PdfEditorApp(tk.Tk):
             pass
 
     def _build_ui(self):
-        bar = ttk.Frame(self, padding=(6, 5), style="Toolbar.TFrame")
+        bar = ttk.Frame(self, padding=(8, 6), style="Toolbar.TFrame")
         bar.pack(side="top", fill="x")
-        ttk.Separator(self, orient="horizontal").pack(fill="x")     # 工具栏与内容的分界线
-        ttk.Button(bar, text="打开 PDF", command=self.open_pdf).pack(side="left")
+        # 工具栏靠自身底色与内容区区分，不再画分界线
+        # ── 右端：设置 ▾（先占位，窄窗口时优先保证它可见）──
+        self._build_more_menu(bar)
+        ttk.Separator(bar, orient="vertical").pack(side="right", fill="y", padx=8)
+        # ── 文件组：打开 / 另存为 ──
+        self.btn_open = ttk.Button(bar, text="打开", command=self.open_pdf)
+        self.btn_open.pack(side="left")
+        self.btn_save = ttk.Button(bar, text="另存为…", style="Accent.TButton",
+                                   command=self.save_as)
+        self.btn_save.pack(side="left", padx=(6, 0))
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
+        # ── 页面组：翻页 ──
         ttk.Button(bar, text="◀", width=3, command=lambda: self.change_page(-1)).pack(side="left")
-        self.lbl_page = ttk.Label(bar, text="0/0", width=7, anchor="center",
+        self.lbl_page = ttk.Label(bar, text="0/0", width=4, anchor="center",
                                   style="Toolbar.TLabel")
         self.lbl_page.pack(side="left")
         ttk.Button(bar, text="▶", width=3, command=lambda: self.change_page(1)).pack(side="left")
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
-        ttk.Button(bar, text="自动标定加粗", command=self.auto_calibrate).pack(side="left")
+        # ── 视图组：对比预览 / 适应窗口 ──
+        self.cb_compare = ttk.Checkbutton(bar, text="对比预览", variable=self.show_after,
+                                          style="Toolbar.TCheckbutton",
+                                          command=self._on_toggle_after)
+        self.cb_compare.pack(side="left")
+        self.btn_fit = ttk.Button(bar, text="适应窗口", command=self.autofit)
+        self.btn_fit.pack(side="left", padx=(8, 0))
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
-        ttk.Checkbutton(bar, text="对比预览", variable=self.show_after,
-                        style="Toolbar.TCheckbutton",
-                        command=self._on_toggle_after).pack(side="left")
-        ttk.Button(bar, text="适应窗口", command=self.autofit).pack(side="left")
+        # ── 缩放组（原独立一行的缩放条并进工具栏） ──
+        ttk.Label(bar, text="缩放", style="Toolbar.TLabel").pack(side="left")
+        self.zoom_var = tk.DoubleVar(value=self.zoom)
+        self.scale = ttk.Scale(bar, from_=ZOOM_MIN * 100, to=ZOOM_MAX * 100,
+                               orient="horizontal", length=80, variable=self.zoom_var,
+                               command=self._on_slider)
+        self.scale.pack(side="left", padx=(6, 4))
+        self.e_zoom = ttk.Entry(bar, width=4)
+        self.e_zoom.pack(side="left")
+        ttk.Label(bar, text="%", style="Toolbar.TLabel").pack(side="left", padx=(2, 6))
+        self.e_zoom.bind("<Return>", lambda e: self._apply_zoom_entry())
+        self.e_zoom.bind("<FocusOut>", lambda e: self._apply_zoom_entry())
+        ttk.Button(bar, text="－", width=3,
+                   command=lambda: self.set_zoom(self.zoom / 1.25)).pack(side="left")
+        ttk.Button(bar, text="＋", width=3,
+                   command=lambda: self.set_zoom(self.zoom * 1.25)).pack(side="left")
 
-        # 右端动作区：「设置 ▾」在最右，「另存为…」紧挨其左（与右栏右缘同一条竖线）
-        self._build_more_menu(bar)
-        ttk.Button(bar, text="另存为…", style="Accent.TButton",
-                   command=self.save_as).pack(side="right", padx=(0, 8))
+        # 线条图标：跟随主题；绿色主按钮固定用白色那套
+        self._icon_widgets = [(self.btn_open, None, "open"),
+                              (self.btn_save, "accent", "save"),
+                              (self.cb_compare, None, "compare"),
+                              (self.btn_fit, None, "fit"),
+                              (self.mb_more, None, "settings")]
 
         content = tk.PanedWindow(self, orient="vertical", sashwidth=6, sashrelief="raised",
                                  background=self._pal["sash"], bd=0, opaqueresize=False)
@@ -487,28 +533,9 @@ class PdfEditorApp(tk.Tk):
         left = ttk.Frame(outer)
         outer.add(left, stretch="always", minsize=320)
 
-        zbar = ttk.Frame(left, padding=(6, 4))
-        zbar.pack(side="top", fill="x")
-        ttk.Label(zbar, text="缩放").pack(side="left")
-        self.zoom_var = tk.DoubleVar(value=self.zoom)
-        self.scale = ttk.Scale(zbar, from_=ZOOM_MIN * 100, to=ZOOM_MAX * 100,
-                               orient="horizontal", length=180, variable=self.zoom_var,
-                               command=self._on_slider)
-        self.scale.pack(side="left", padx=(4, 6))
-        self.e_zoom = ttk.Entry(zbar, width=6)
-        self.e_zoom.pack(side="left")
-        ttk.Label(zbar, text="%").pack(side="left", padx=(2, 6))
-        self.e_zoom.bind("<Return>", lambda e: self._apply_zoom_entry())
-        self.e_zoom.bind("<FocusOut>", lambda e: self._apply_zoom_entry())
-        ttk.Button(zbar, text="－", width=3, command=lambda: self.set_zoom(self.zoom / 1.25)).pack(side="left")
-        ttk.Button(zbar, text="＋", width=3, command=lambda: self.set_zoom(self.zoom * 1.25)).pack(side="left")
-        self.lbl_mousehint = ttk.Label(zbar, text="滚轮滚动 · Ctrl+滚轮缩放 · Shift+滚轮横向",
-                                       foreground=self._pal["muted"], font=UI_FONT_SMALL)
-        self.lbl_mousehint.pack(side="left", padx=10)
-
         # 画布上方一行：「tips」胶囊 + 当前阶段提示（替代原来的「原图 / 改后」标签）
         hdr = ttk.Frame(left)
-        hdr.pack(side="top", fill="x", padx=6, pady=(2, 2))
+        hdr.pack(side="top", fill="x", padx=8, pady=(6, 4))
         self.pill, self._pill_shape, self._pill_text = make_pill(
             hdr, "tips", self._pal["bg"], self._pal["primary"], self._pal["pill_fg"], UI_FONT)
         self.pill.pack(side="left")
@@ -553,7 +580,7 @@ class PdfEditorApp(tk.Tk):
         self.bind("<Control-minus>", lambda e: self.set_zoom(self.zoom / 1.25))
 
         # ---- 右：竖向可拖（编辑 | 修改清单 | 日志） ----
-        right = ttk.Frame(outer, padding=6)
+        right = ttk.Frame(outer, padding=8)
         self.right_frame = right
         outer.add(right, stretch="never", minsize=330, width=440)
 
@@ -572,29 +599,29 @@ class PdfEditorApp(tk.Tk):
         self.right_paned.add(pane2, stretch="always", minsize=110)
 
         # 日志：整窗底部通栏，可上下拖高度
-        logpane = ttk.Frame(content, padding=(6, 2))
+        logpane = ttk.Frame(content, padding=(8, 4))
         self._build_log_pane(logpane)
         content.add(logpane, stretch="never", minsize=70, height=150)
 
         self._style_widgets()
 
     def _build_edit_form(self, parent):
-        edit = ttk.LabelFrame(parent, text="编辑选中片段", padding=6)
+        edit = ttk.LabelFrame(parent, text="编辑选中片段", padding=8)
         edit.pack(fill="x")
 
-        ttk.Label(edit, text="原文").grid(row=0, column=0, sticky="w", pady=2)
+        ttk.Label(edit, text="原文").grid(row=0, column=0, sticky="w", pady=4)
         self.e_old = ttk.Entry(edit, width=34)
-        self.e_old.grid(row=0, column=1, columnspan=2, sticky="we", pady=2)
+        self.e_old.grid(row=0, column=1, columnspan=2, sticky="we", pady=4)
 
-        ttk.Label(edit, text="替换为").grid(row=1, column=0, sticky="w", pady=2)
+        ttk.Label(edit, text="替换为").grid(row=1, column=0, sticky="w", pady=4)
         self.e_new = ttk.Entry(edit, width=34)
-        self.e_new.grid(row=1, column=1, columnspan=2, sticky="we", pady=2)
+        self.e_new.grid(row=1, column=1, columnspan=2, sticky="we", pady=4)
         self.e_new.bind("<Return>", lambda e: self.add_rule())
         self.e_new.bind("<KeyRelease>", lambda e: self._on_new_text())
 
-        ttk.Label(edit, text="字体").grid(row=2, column=0, sticky="w", pady=2)
+        ttk.Label(edit, text="字体").grid(row=2, column=0, sticky="w", pady=4)
         fontbox = ttk.Frame(edit)
-        fontbox.grid(row=2, column=1, columnspan=2, sticky="we", pady=2)
+        fontbox.grid(row=2, column=1, columnspan=2, sticky="we", pady=4)
         self.cb_font = ttk.Combobox(fontbox, width=18, state="readonly",
                                     values=[label for _, label in self.font_choices])
         self.cb_font.current(0)
@@ -605,14 +632,14 @@ class PdfEditorApp(tk.Tk):
         self.e_size.pack(side="right", padx=(4, 0))
         ttk.Label(fontbox, text="字号").pack(side="right")
 
-        ttk.Label(edit, text="对齐").grid(row=3, column=0, sticky="w", pady=2)
+        ttk.Label(edit, text="对齐").grid(row=3, column=0, sticky="w", pady=4)
         self.v_align = tk.StringVar(value="match")
         af = ttk.Frame(edit)
         af.grid(row=3, column=1, columnspan=2, sticky="w")
         ttk.Radiobutton(af, text="保持原位", value="match", variable=self.v_align).pack(side="left")
         ttk.Radiobutton(af, text="左对齐留白", value="left", variable=self.v_align).pack(side="left", padx=(8, 0))
 
-        ttk.Label(edit, text="留白").grid(row=4, column=0, sticky="w", pady=2)
+        ttk.Label(edit, text="留白").grid(row=4, column=0, sticky="w", pady=4)
         af2 = ttk.Frame(edit)
         af2.grid(row=4, column=1, columnspan=2, sticky="w")
         ttk.Label(af2, text="左边框x").pack(side="left")
@@ -624,7 +651,7 @@ class PdfEditorApp(tk.Tk):
         self.cb_gap.pack(side="left")
         ttk.Label(af2, text="字宽").pack(side="left", padx=(2, 0))
 
-        ttk.Label(edit, text="范围").grid(row=5, column=0, sticky="w", pady=2)
+        ttk.Label(edit, text="范围").grid(row=5, column=0, sticky="w", pady=4)
         self.v_scope = tk.StringVar(value="all")
         sf = ttk.Frame(edit)
         sf.grid(row=5, column=1, columnspan=2, sticky="w")
@@ -640,7 +667,7 @@ class PdfEditorApp(tk.Tk):
         edit.columnconfigure(1, weight=1)
 
     def _build_rules_pane(self, parent):
-        lst = ttk.LabelFrame(parent, text="修改清单", padding=6)
+        lst = ttk.LabelFrame(parent, text="修改清单", padding=8)
         lst.pack(fill="both", expand=True)
         wrap = ttk.Frame(lst)
         wrap.pack(fill="both", expand=True)
@@ -659,7 +686,6 @@ class PdfEditorApp(tk.Tk):
         ttk.Button(lb, text="删除选中", style="Ghost.TButton", command=self.del_rule).pack(side="left")
         ttk.Button(lb, text="清空", style="Ghost.TButton",
                    command=self.clear_rules).pack(side="left", padx=4)
-        ttk.Button(lb, text="另存为…", command=self.save_as).pack(side="right")
 
     def _build_log_pane(self, parent):
         logf = ttk.LabelFrame(parent, text="日志", padding=4)
