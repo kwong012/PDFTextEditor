@@ -128,7 +128,7 @@ HELP_TEXT = f"""PDFTextEditor · 使用说明
 
 ────────────────────────────
 【界面主题】
-工具栏右侧「设置 ▾」→「主题」可切换「浅色 / 深色」，选择会被记住，下次启动沿用。
+工具栏右侧「设置 ▾」→「深色主题」点一下即可切换（勾选 = 深色），选择会被记住，下次启动沿用。
 （深色模式下预览画布、日志栏、修改清单、以及 Windows 标题栏都会一起变暗。）
 导入 / 导出 config、帮助也在这个「设置」菜单里。
 
@@ -340,12 +340,10 @@ class PdfEditorApp(tk.Tk):
         """把不常用的功能收进工具栏右侧的「设置 ▾」下拉，避免窄窗口被挤掉。"""
         self.mb_more = ttk.Menubutton(parent, text="设置 ▾")
         menu = tk.Menu(self.mb_more, tearoff=0)
-        theme_menu = tk.Menu(menu, tearoff=0)
-        self.v_theme = tk.StringVar(value=self._theme)
-        for key in THEME_ORDER:
-            theme_menu.add_radiobutton(label=THEMES[key]["label"], value=key,
-                                       variable=self.v_theme, command=self._on_theme_change)
-        menu.add_cascade(label="主题", menu=theme_menu)
+        # 只有浅/深两套，直接点一下切换（勾选状态 = 当前是否深色）
+        self.v_dark = tk.BooleanVar(value=(self._theme == "dark"))
+        menu.add_checkbutton(label="深色主题", variable=self.v_dark,
+                             command=self._on_toggle_dark)
         menu.add_separator()
         menu.add_command(label="导入 config…", command=self.import_config)
         menu.add_command(label="导出 config…", command=self.export_config)
@@ -353,14 +351,18 @@ class PdfEditorApp(tk.Tk):
         menu.add_command(label="帮助", command=self.show_help)
         self.mb_more.configure(menu=menu)
         self.mb_more.pack(side="right")
-        self._menus = (menu, theme_menu)
+        self._menus = (menu,)
 
-    def _on_theme_change(self, _event=None):
-        key = self.v_theme.get()
+    def _on_toggle_dark(self):
+        self.set_theme("dark" if self.v_dark.get() else "light")
+
+    def set_theme(self, key):
+        """切换主题（菜单与自检共用）。"""
         if key not in THEMES or key == self._theme:
             return
         self._theme = key
         self._pal = THEMES[key]
+        self.v_dark.set(key == "dark")
         self._style_ttk()
         self._style_widgets()
         data = load_settings()
