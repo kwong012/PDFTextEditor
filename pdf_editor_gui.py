@@ -659,7 +659,6 @@ class PdfEditorApp(tk.Tk):
         ttk.Button(lb, text="删除选中", style="Ghost.TButton", command=self.del_rule).pack(side="left")
         ttk.Button(lb, text="清空", style="Ghost.TButton",
                    command=self.clear_rules).pack(side="left", padx=4)
-        ttk.Button(lb, text="另存为…", command=self.save_as).pack(side="right")
 
     def _build_log_pane(self, parent):
         logf = ttk.LabelFrame(parent, text="日志", padding=4)
