@@ -377,7 +377,6 @@ class PdfEditorApp(tk.Tk):
                            insertbackground=p["fg"], selectbackground=p["sel_bg"],
                            selectforeground=p["sel_fg"], highlightthickness=0, bd=0)
         self.lbl_hint.configure(foreground=p["hint"])
-        self.lbl_mousehint.configure(foreground=p["muted"])
         # tips 胶囊跟着换色
         self.pill.configure(bg=p["bg"])
         self.pill.itemconfigure(self._pill_shape, fill=p["primary"])
@@ -459,19 +458,36 @@ class PdfEditorApp(tk.Tk):
         ttk.Button(bar, text="打开 PDF", command=self.open_pdf).pack(side="left")
         ttk.Button(bar, text="另存为…", style="Accent.TButton",
                    command=self.save_as).pack(side="left", padx=(6, 0))
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=10)
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         # ── 页面组：翻页 ──
         ttk.Button(bar, text="◀", width=3, command=lambda: self.change_page(-1)).pack(side="left")
-        self.lbl_page = ttk.Label(bar, text="0/0", width=5, anchor="center",
+        self.lbl_page = ttk.Label(bar, text="0/0", width=4, anchor="center",
                                   style="Toolbar.TLabel")
         self.lbl_page.pack(side="left")
         ttk.Button(bar, text="▶", width=3, command=lambda: self.change_page(1)).pack(side="left")
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=10)
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         # ── 视图组：对比预览 / 适应窗口 ──
         ttk.Checkbutton(bar, text="对比预览", variable=self.show_after,
                         style="Toolbar.TCheckbutton",
                         command=self._on_toggle_after).pack(side="left")
         ttk.Button(bar, text="适应窗口", command=self.autofit).pack(side="left", padx=(8, 0))
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
+        # ── 缩放组（原独立一行的缩放条并进工具栏） ──
+        ttk.Label(bar, text="缩放", style="Toolbar.TLabel").pack(side="left")
+        self.zoom_var = tk.DoubleVar(value=self.zoom)
+        self.scale = ttk.Scale(bar, from_=ZOOM_MIN * 100, to=ZOOM_MAX * 100,
+                               orient="horizontal", length=90, variable=self.zoom_var,
+                               command=self._on_slider)
+        self.scale.pack(side="left", padx=(6, 4))
+        self.e_zoom = ttk.Entry(bar, width=4)
+        self.e_zoom.pack(side="left")
+        ttk.Label(bar, text="%", style="Toolbar.TLabel").pack(side="left", padx=(2, 6))
+        self.e_zoom.bind("<Return>", lambda e: self._apply_zoom_entry())
+        self.e_zoom.bind("<FocusOut>", lambda e: self._apply_zoom_entry())
+        ttk.Button(bar, text="－", width=3,
+                   command=lambda: self.set_zoom(self.zoom / 1.25)).pack(side="left")
+        ttk.Button(bar, text="＋", width=3,
+                   command=lambda: self.set_zoom(self.zoom * 1.25)).pack(side="left")
 
         # ── 右端：设置 ▾ ──
         self._build_more_menu(bar)
@@ -489,25 +505,6 @@ class PdfEditorApp(tk.Tk):
         # ---- 左：缩放条 + 画布 ----
         left = ttk.Frame(outer)
         outer.add(left, stretch="always", minsize=320)
-
-        zbar = ttk.Frame(left, padding=(6, 4))
-        zbar.pack(side="top", fill="x")
-        ttk.Label(zbar, text="缩放").pack(side="left")
-        self.zoom_var = tk.DoubleVar(value=self.zoom)
-        self.scale = ttk.Scale(zbar, from_=ZOOM_MIN * 100, to=ZOOM_MAX * 100,
-                               orient="horizontal", length=180, variable=self.zoom_var,
-                               command=self._on_slider)
-        self.scale.pack(side="left", padx=(4, 6))
-        self.e_zoom = ttk.Entry(zbar, width=6)
-        self.e_zoom.pack(side="left")
-        ttk.Label(zbar, text="%").pack(side="left", padx=(2, 6))
-        self.e_zoom.bind("<Return>", lambda e: self._apply_zoom_entry())
-        self.e_zoom.bind("<FocusOut>", lambda e: self._apply_zoom_entry())
-        ttk.Button(zbar, text="－", width=3, command=lambda: self.set_zoom(self.zoom / 1.25)).pack(side="left")
-        ttk.Button(zbar, text="＋", width=3, command=lambda: self.set_zoom(self.zoom * 1.25)).pack(side="left")
-        self.lbl_mousehint = ttk.Label(zbar, text="滚轮滚动 · Ctrl+滚轮缩放 · Shift+滚轮横向",
-                                       foreground=self._pal["muted"], font=UI_FONT_SMALL)
-        self.lbl_mousehint.pack(side="left", padx=10)
 
         # 画布上方一行：「tips」胶囊 + 当前阶段提示（替代原来的「原图 / 改后」标签）
         hdr = ttk.Frame(left)
