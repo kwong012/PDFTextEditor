@@ -33,6 +33,59 @@ ZOOM_MIN, ZOOM_MAX = 0.2, 5.0
 TILE_MARGIN = 0.5          # 缓冲边 = 视口尺寸的 50%
 RENDER_DEBOUNCE_MS = 40
 
+# ---------------- 主题（浅色 / 深色） ----------------
+# Windows 下 ttk 默认用 vista 主题，很多颜色改不动，所以统一切到 clam，
+# 由下面的调色板完全接管配色；tk 原生控件（画布 / 日志 / 分隔条）另行上色。
+THEMES = {
+    "light": dict(
+        label="浅色",
+        bg="#f0f0f0", fg="#1a1a1a",           # 面板底色 / 文字
+        field="#ffffff",                      # 输入框、列表底
+        border="#c9c9c9", btn="#e8e8e8", btn_hover="#dcdcdc",
+        sel_bg="#cfe4ff", sel_fg="#1a1a1a",   # 选中项
+        head="#e3e3e3",                       # 表头
+        sash="#d0d0d0",                       # 分隔条
+        canvas="#3b3b3b",                     # 预览画布底色（页面四周）
+        accent="#0066cc", ok="#00aa66", warn="#cc6600",
+        muted="#777777", mark="#e53935", disabled="#a0a0a0",
+    ),
+    "dark": dict(
+        label="深色",
+        bg="#2b2b2b", fg="#e6e6e6",
+        field="#3a3a3a",
+        border="#4d4d4d", btn="#3a3a3a", btn_hover="#4a4a4a",
+        sel_bg="#3f5b78", sel_fg="#ffffff",
+        head="#333333",
+        sash="#1f1f1f",
+        canvas="#1c1c1c",
+        accent="#4fc3f7", ok="#4ade80", warn="#fbbf24",
+        muted="#9a9a9a", mark="#ff5252", disabled="#6f6f6f",
+    ),
+}
+THEME_ORDER = ("light", "dark")
+
+
+def settings_path() -> str:
+    """轻量设置文件（主题等）。与字体缓存同目录：便携版在程序目录 data\\，否则在用户缓存目录。"""
+    return os.path.join(core.user_cache_dir(), "settings.json")
+
+
+def load_settings() -> dict:
+    try:
+        with open(settings_path(), encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_settings(data: dict) -> None:
+    try:
+        with open(settings_path(), "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+
 STEPS = ("① 点左侧预览里的文字\n"
          "② 填\"替换为\"\n"
          "③ 点\"添加到清单\"\n"
@@ -72,6 +125,11 @@ HELP_TEXT = f"""PDFTextEditor · 使用说明
 把 PDF 路径作为参数传给程序可直接打开：
     python pdf_editor_gui.py "D:\\某文件.pdf"
 打包成 exe 后也可以把 PDF 拖到 exe 上打开。
+
+────────────────────────────
+【界面主题】
+工具栏右侧「主题」可切换「浅色 / 深色」，选择会被记住，下次启动沿用。
+（深色模式下预览画布、日志栏、修改清单等都会一起变暗。）
 
 ────────────────────────────
 【各控件说明】
@@ -151,6 +209,11 @@ class PdfEditorApp(tk.Tk):
         self.show_after = tk.BooleanVar(value=False)
         self.font_choices = core.list_available_fonts()   # 本机可用字体（覆盖面广）
 
+        # 主题：默认浅色；上次的选择会记住（settings.json 与字体缓存同目录）
+        saved_theme = load_settings().get("theme")
+        self._theme = saved_theme if saved_theme in THEMES else "light"
+        self._pal = THEMES[self._theme]
+
         self._apply_styles()
         self._build_ui()
         self._set_hint(STEPS)
@@ -164,9 +227,111 @@ class PdfEditorApp(tk.Tk):
     def _apply_styles(self):
         """各级标题着重显示：分组标题、表头、面板标签用粗体；界面统一中文字体。"""
         style = ttk.Style(self)
+        try:
+            style.theme_use("clam")   # clam 才能完全自定义配色（含深色）
+        except tk.TclError:
+            pass
         style.configure(".", font=UI_FONT)
         style.configure("TLabelframe.Label", font=UI_FONT_BOLD)
         style.configure("Treeview.Heading", font=UI_FONT_BOLD)
+        self._style_ttk()
+
+    def _style_ttk(self):
+        """按当前调色板配置所有 ttk 样式。"""
+        p = self._pal
+        st = ttk.Style(self)
+        st.configure("TFrame", background=p["bg"])
+        st.configure("TLabel", background=p["bg"], foreground=p["fg"])
+        st.configure("TLabelframe", background=p["bg"], bordercolor=p["border"],
+                     relief="solid", borderwidth=1)
+        st.configure("TLabelframe.Label", background=p["bg"], foreground=p["fg"], font=UI_FONT_BOLD)
+        st.configure("TSeparator", background=p["border"])
+
+        st.configure("TButton", background=p["btn"], foreground=p["fg"],
+                     bordercolor=p["border"], lightcolor=p["btn"], darkcolor=p["btn"],
+                     focuscolor=p["sel_bg"], padding=(8, 3))
+        st.map("TButton",
+               background=[("pressed", p["sel_bg"]), ("active", p["btn_hover"]), ("disabled", p["bg"])],
+               foreground=[("disabled", p["disabled"])])
+
+        for sty in ("TCheckbutton", "TRadiobutton"):
+            st.configure(sty, background=p["bg"], foreground=p["fg"], focuscolor=p["bg"])
+            st.map(sty, background=[("active", p["bg"])],
+                   foreground=[("disabled", p["disabled"])])
+
+        st.configure("TEntry", fieldbackground=p["field"], foreground=p["fg"],
+                     bordercolor=p["border"], lightcolor=p["border"], darkcolor=p["border"],
+                     insertcolor=p["fg"], padding=2)
+        st.map("TEntry", fieldbackground=[("disabled", p["bg"])],
+               foreground=[("disabled", p["disabled"])])
+
+        st.configure("TCombobox", fieldbackground=p["field"], background=p["btn"],
+                     foreground=p["fg"], bordercolor=p["border"], arrowcolor=p["fg"],
+                     lightcolor=p["border"], darkcolor=p["border"], padding=2)
+        st.map("TCombobox",
+               fieldbackground=[("readonly", p["field"]), ("disabled", p["bg"])],
+               foreground=[("readonly", p["fg"]), ("disabled", p["disabled"])],
+               background=[("active", p["btn_hover"])])
+
+        st.configure("TScrollbar", background=p["btn"], troughcolor=p["bg"],
+                     bordercolor=p["bg"], arrowcolor=p["fg"],
+                     lightcolor=p["btn"], darkcolor=p["btn"])
+        st.map("TScrollbar", background=[("active", p["btn_hover"]), ("pressed", p["sel_bg"])])
+
+        st.configure("TScale", background=p["bg"], troughcolor=p["field"],
+                     bordercolor=p["border"], lightcolor=p["accent"], darkcolor=p["accent"])
+        st.map("TScale", background=[("active", p["bg"])])
+
+        st.configure("Treeview", background=p["field"], fieldbackground=p["field"],
+                     foreground=p["fg"], bordercolor=p["border"],
+                     lightcolor=p["border"], darkcolor=p["border"], rowheight=22)
+        st.map("Treeview", background=[("selected", p["sel_bg"])],
+               foreground=[("selected", p["sel_fg"])])
+        st.configure("Treeview.Heading", background=p["head"], foreground=p["fg"],
+                     bordercolor=p["border"], lightcolor=p["head"], darkcolor=p["head"],
+                     relief="flat")
+        st.map("Treeview.Heading", background=[("active", p["btn_hover"])])
+
+        # 下拉列表是 Tk 原生 listbox，只能用 option_add 上色
+        self.option_add("*TCombobox*Listbox.background", p["field"])
+        self.option_add("*TCombobox*Listbox.foreground", p["fg"])
+        self.option_add("*TCombobox*Listbox.selectBackground", p["sel_bg"])
+        self.option_add("*TCombobox*Listbox.selectForeground", p["sel_fg"])
+        self.option_add("*TCombobox*Listbox.font", UI_FONT)
+
+    def _style_widgets(self):
+        """给 tk 原生控件（分隔条 / 画布 / 日志 / 彩色标签）上色。"""
+        p = self._pal
+        self.configure(bg=p["bg"])
+        for pane in (self.content, self.outer, self.paned, self.right_paned):
+            pane.configure(background=p["sash"])
+        for cv in (self.canvas, self.canvas_after):
+            cv.configure(background=p["canvas"])
+        self.log.configure(background=p["field"], foreground=p["fg"],
+                           insertbackground=p["fg"], selectbackground=p["sel_bg"],
+                           selectforeground=p["sel_fg"], highlightthickness=0, bd=0)
+        self.lbl_hint.configure(foreground=p["accent"])
+        self.lbl_before.configure(foreground=p["ok"])
+        self.lbl_after.configure(foreground=p["warn"])
+        self.lbl_mousehint.configure(foreground=p["muted"])
+        help_txt = getattr(self, "_help_txt", None)
+        if help_txt is not None and help_txt.winfo_exists():
+            help_txt.configure(background=p["field"], foreground=p["fg"],
+                               insertbackground=p["fg"])
+            self._help_win.configure(background=p["bg"])
+
+    def _on_theme_change(self, _event=None):
+        key = THEME_ORDER[self.cb_theme.current()]
+        if key == self._theme:
+            return
+        self._theme = key
+        self._pal = THEMES[key]
+        self._style_ttk()
+        self._style_widgets()
+        data = load_settings()
+        data["theme"] = key
+        save_settings(data)
+        self._log("主题已切换为「%s」（下次启动沿用）" % self._pal["label"])
 
     def _build_ui(self):
         bar = ttk.Frame(self, padding=4)
@@ -189,14 +354,20 @@ class PdfEditorApp(tk.Tk):
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
         ttk.Button(bar, text="另存为…", command=self.save_as).pack(side="left")
         ttk.Button(bar, text="帮助", command=self.show_help).pack(side="right")
+        self.cb_theme = ttk.Combobox(bar, width=5, state="readonly",
+                                     values=[THEMES[k]["label"] for k in THEME_ORDER])
+        self.cb_theme.current(THEME_ORDER.index(self._theme))
+        self.cb_theme.pack(side="right")
+        self.cb_theme.bind("<<ComboboxSelected>>", self._on_theme_change)
+        ttk.Label(bar, text="主题").pack(side="right", padx=(6, 2))
 
         content = tk.PanedWindow(self, orient="vertical", sashwidth=6, sashrelief="raised",
-                                 background="#d0d0d0", bd=0, opaqueresize=False)
+                                 background=self._pal["sash"], bd=0, opaqueresize=False)
         self.content = content
         content.pack(fill="both", expand=True)
 
         outer = tk.PanedWindow(content, orient="horizontal", sashwidth=6, sashrelief="raised",
-                               background="#d0d0d0", bd=0, opaqueresize=False)
+                               background=self._pal["sash"], bd=0, opaqueresize=False)
         self.outer = outer
         content.add(outer, stretch="always", minsize=320)
 
@@ -219,8 +390,9 @@ class PdfEditorApp(tk.Tk):
         self.e_zoom.bind("<FocusOut>", lambda e: self._apply_zoom_entry())
         ttk.Button(zbar, text="－", width=3, command=lambda: self.set_zoom(self.zoom / 1.25)).pack(side="left")
         ttk.Button(zbar, text="＋", width=3, command=lambda: self.set_zoom(self.zoom * 1.25)).pack(side="left")
-        ttk.Label(zbar, text="滚轮滚动 · Ctrl+滚轮缩放 · Shift+滚轮横向",
-                  foreground="#777").pack(side="left", padx=10)
+        self.lbl_mousehint = ttk.Label(zbar, text="滚轮滚动 · Ctrl+滚轮缩放 · Shift+滚轮横向",
+                                       foreground=self._pal["muted"])
+        self.lbl_mousehint.pack(side="left", padx=10)
 
         body = ttk.Frame(left)
         body.pack(fill="both", expand=True)
@@ -228,18 +400,22 @@ class PdfEditorApp(tk.Tk):
         body.columnconfigure(0, weight=1)
 
         self.paned = tk.PanedWindow(body, orient="horizontal", sashwidth=6, sashrelief="raised",
-                                    background="#d0d0d0", bd=0, opaqueresize=False)
+                                    background=self._pal["sash"], bd=0, opaqueresize=False)
         self.paned.grid(row=0, column=0, sticky="nsew")
 
         f_before = ttk.Frame(self.paned)
-        ttk.Label(f_before, text="原图 · 点这里选文字", foreground="#0a6", font=UI_FONT_BOLD).pack(side="top", anchor="w", padx=4)
-        self.canvas = tk.Canvas(f_before, background="#3b3b3b", highlightthickness=0)
+        self.lbl_before = ttk.Label(f_before, text="原图 · 点这里选文字",
+                                    foreground=self._pal["ok"], font=UI_FONT_BOLD)
+        self.lbl_before.pack(side="top", anchor="w", padx=4)
+        self.canvas = tk.Canvas(f_before, background=self._pal["canvas"], highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self.paned.add(f_before, stretch="always", minsize=280)
 
         self.f_after = ttk.Frame(self.paned)
-        ttk.Label(self.f_after, text="改后 · 只读预览", foreground="#c60", font=UI_FONT_BOLD).pack(side="top", anchor="w", padx=4)
-        self.canvas_after = tk.Canvas(self.f_after, background="#3b3b3b", highlightthickness=0)
+        self.lbl_after = ttk.Label(self.f_after, text="改后 · 只读预览",
+                                   foreground=self._pal["warn"], font=UI_FONT_BOLD)
+        self.lbl_after.pack(side="top", anchor="w", padx=4)
+        self.canvas_after = tk.Canvas(self.f_after, background=self._pal["canvas"], highlightthickness=0)
         self.canvas_after.pack(fill="both", expand=True)
 
         self.vbar = ttk.Scrollbar(body, orient="vertical", command=self._yview)
@@ -266,7 +442,7 @@ class PdfEditorApp(tk.Tk):
         outer.add(right, stretch="never", minsize=330, width=440)
 
         self.right_paned = tk.PanedWindow(right, orient="vertical", sashwidth=6, sashrelief="raised",
-                                          background="#d0d0d0", bd=0, opaqueresize=False)
+                                          background=self._pal["sash"], bd=0, opaqueresize=False)
         self.right_paned.pack(fill="both", expand=True)
 
         pane1 = ttk.Frame(self.right_paned)
@@ -283,8 +459,10 @@ class PdfEditorApp(tk.Tk):
         self._build_log_pane(logpane)
         content.add(logpane, stretch="never", minsize=70, height=150)
 
+        self._style_widgets()
+
     def _build_edit_form(self, parent):
-        self.lbl_hint = ttk.Label(parent, text="", foreground="#06c", wraplength=380, justify="left")
+        self.lbl_hint = ttk.Label(parent, text="", foreground=self._pal["accent"], wraplength=380, justify="left")
         self.lbl_hint.pack(fill="x", pady=(0, 6))
 
         edit = ttk.LabelFrame(parent, text="编辑选中片段", padding=6)
@@ -411,16 +589,21 @@ class PdfEditorApp(tk.Tk):
             return
         win = tk.Toplevel(self)
         self._help_win = win
+        self._help_txt = None
         win.title("帮助 · " + APP_TITLE)
         win.geometry("560x640")
         win.transient(self)          # 悬浮于主窗口之上
-        txt = tk.Text(win, wrap="word", padx=10, pady=8)
+        win.configure(background=self._pal["bg"])
+        txt = tk.Text(win, wrap="word", padx=10, pady=8,
+                      background=self._pal["field"], foreground=self._pal["fg"],
+                      insertbackground=self._pal["fg"], highlightthickness=0, bd=0)
         sb = ttk.Scrollbar(win, orient="vertical", command=txt.yview)
         txt.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
         txt.pack(side="left", fill="both", expand=True)
         txt.insert("1.0", HELP_TEXT)
         txt.configure(state="disabled")
+        self._help_txt = txt
 
     # ================= 通用辅助 =================
     def _log(self, msg):
@@ -854,7 +1037,8 @@ class PdfEditorApp(tk.Tk):
         self.canvas.delete("sel")
         x0, y0, x1, y1 = (rect.x0 * self.zoom, rect.y0 * self.zoom,
                           rect.x1 * self.zoom, rect.y1 * self.zoom)
-        self.canvas.create_rectangle(x0 - 2, y0 - 2, x1 + 2, y1 + 2, outline="#e53935", width=2, tags="sel")
+        self.canvas.create_rectangle(x0 - 2, y0 - 2, x1 + 2, y1 + 2,
+                                     outline=self._pal["mark"], width=2, tags="sel")
 
     def clear_selection(self):
         """取消选择：清空 原文/替换为 两栏，去掉左侧高亮。"""

@@ -16,7 +16,7 @@ PDFTextEditor 便携版  @VERSION@
 PDFTextEditor.exe   程序本体
 _internal\          运行库（不要删、不要改）
 portable.flag       便携版标记（缓存会写在本文件夹内）
-data\               字体缓存（用到的字体转成 ttf，约 10-20 MB/个），可随时删除
+data\               缓存与设置（字体缓存、主题偏好等），可随时删除
 使用说明.txt        本文件
 
 【首次运行提示】
