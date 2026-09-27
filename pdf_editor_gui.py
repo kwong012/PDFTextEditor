@@ -703,25 +703,23 @@ class PdfEditorApp(tk.Tk):
         self.e_old.state(["readonly"])
 
     def _build_rules_pane(self, parent):
-        lst = ttk.LabelFrame(parent, text="修改清单", padding=8)
-        lst.pack(fill="both", expand=True)
-        wrap = ttk.Frame(lst)
-        wrap.pack(fill="both", expand=True)
+        self.rules_frame = ttk.LabelFrame(parent, text="修改清单", padding=8)
+        self.rules_frame.pack(fill="both", expand=True)
+        head = ttk.Frame(self.rules_frame)
+        head.pack(fill="x")
+        ttk.Label(head, text="选中一条可删除", style="Muted.TLabel").pack(side="left")
+        ttk.Button(head, text="清空", style="Ghost.TButton",
+                   command=self.clear_rules).pack(side="right")
+        ttk.Button(head, text="删除选中", style="Ghost.TButton",
+                   command=self.del_rule).pack(side="right", padx=4)
+        wrap = ttk.Frame(self.rules_frame)
+        wrap.pack(fill="both", expand=True, pady=(6, 0))
         sb = ttk.Scrollbar(wrap, orient="vertical")
-        self.tree = ttk.Treeview(wrap, columns=("old", "new", "scope"), show="headings",
-                                 height=6, yscrollcommand=sb.set)
+        self.tree = ttk.Treeview(wrap, columns=("t",), show="", height=6, yscrollcommand=sb.set)
         sb.configure(command=self.tree.yview)
-        for c, w, t in (("old", 170, "原文"), ("new", 190, "替换"), ("scope", 64, "范围")):
-            self.tree.heading(c, text=t)
-            self.tree.column(c, width=w, anchor="w")
-        self.tree.column("scope", stretch=False)     # 「范围」列不该跟着窗口拉伸
+        self.tree.column("t", anchor="w")
         sb.pack(side="right", fill="y")
         self.tree.pack(side="left", fill="both", expand=True)
-        lb = ttk.Frame(lst)
-        lb.pack(fill="x", pady=(4, 0))
-        ttk.Button(lb, text="删除选中", style="Ghost.TButton", command=self.del_rule).pack(side="left")
-        ttk.Button(lb, text="清空", style="Ghost.TButton",
-                   command=self.clear_rules).pack(side="left", padx=4)
 
     def _build_log_pane(self, parent):
         logf = ttk.LabelFrame(parent, text="日志", padding=4)
@@ -1313,8 +1311,10 @@ class PdfEditorApp(tk.Tk):
     def _refresh_rules(self):
         self.tree.delete(*self.tree.get_children())
         for i, r in enumerate(self.rules):
-            scope = "仅此处" if r.get("scope") == "single" else "全部"
-            self.tree.insert("", "end", iid=str(i), values=(r["old"], r["new"], scope))
+            scope = "  ·仅此处" if r.get("scope") == "single" else ""
+            self.tree.insert("", "end", iid=str(i),
+                             values=(f"{r['old']}  →  {r['new']}{scope}",))
+        self.rules_frame.configure(text=f"修改清单  ({len(self.rules)})")
         self._update_add_state()
         self._update_hint()
 
