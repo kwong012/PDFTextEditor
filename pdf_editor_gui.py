@@ -128,8 +128,9 @@ HELP_TEXT = f"""PDFTextEditor · 使用说明
 
 ────────────────────────────
 【界面主题】
-工具栏右侧「主题」可切换「浅色 / 深色」，选择会被记住，下次启动沿用。
-（深色模式下预览画布、日志栏、修改清单等都会一起变暗。）
+工具栏右侧「更多 ▾」→「主题」可切换「浅色 / 深色」，选择会被记住，下次启动沿用。
+（深色模式下预览画布、日志栏、修改清单、以及 Windows 标题栏都会一起变暗。）
+导入 / 导出 config、帮助也在这个「更多」菜单里。
 
 ────────────────────────────
 【各控件说明】
@@ -220,6 +221,7 @@ class PdfEditorApp(tk.Tk):
         self._log('就绪. 请先点"打开 PDF". 第一次用请看"帮助".')
         self.after(80, self._on_configure)
         self.after(200, self._apply_minsizes)
+        self.after(150, self._apply_titlebar)      # 窗口映射后再套一次标题栏颜色
         if initial and os.path.exists(initial):
             self.load_pdf(initial)
 
@@ -252,6 +254,12 @@ class PdfEditorApp(tk.Tk):
                      focuscolor=p["sel_bg"], padding=(8, 3))
         st.map("TButton",
                background=[("pressed", p["sel_bg"]), ("active", p["btn_hover"]), ("disabled", p["bg"])],
+               foreground=[("disabled", p["disabled"])])
+
+        st.configure("TMenubutton", background=p["btn"], foreground=p["fg"],
+                     arrowcolor=p["fg"], bordercolor=p["border"],
+                     lightcolor=p["btn"], darkcolor=p["btn"], padding=(8, 3))
+        st.map("TMenubutton", background=[("active", p["btn_hover"])],
                foreground=[("disabled", p["disabled"])])
 
         for sty in ("TCheckbutton", "TRadiobutton"):
@@ -319,10 +327,37 @@ class PdfEditorApp(tk.Tk):
             help_txt.configure(background=p["field"], foreground=p["fg"],
                                insertbackground=p["fg"])
             self._help_win.configure(background=p["bg"])
+        # tk 原生菜单（「更多」下拉）
+        for m in getattr(self, "_menus", ()):
+            m.configure(background=p["field"], foreground=p["fg"],
+                        activebackground=p["sel_bg"], activeforeground=p["sel_fg"],
+                        selectcolor=p["field"], disabledforeground=p["disabled"],
+                        bd=0, relief="flat")
+        # Windows 标题栏跟随深浅色
+        self._apply_titlebar()
+
+    def _build_more_menu(self, parent):
+        """把不常用的功能收进工具栏右侧的「更多 ▾」下拉，避免窄窗口被挤掉。"""
+        self.mb_more = ttk.Menubutton(parent, text="更多 ▾")
+        menu = tk.Menu(self.mb_more, tearoff=0)
+        theme_menu = tk.Menu(menu, tearoff=0)
+        self.v_theme = tk.StringVar(value=self._theme)
+        for key in THEME_ORDER:
+            theme_menu.add_radiobutton(label=THEMES[key]["label"], value=key,
+                                       variable=self.v_theme, command=self._on_theme_change)
+        menu.add_cascade(label="主题", menu=theme_menu)
+        menu.add_separator()
+        menu.add_command(label="导入 config…", command=self.import_config)
+        menu.add_command(label="导出 config…", command=self.export_config)
+        menu.add_separator()
+        menu.add_command(label="帮助", command=self.show_help)
+        self.mb_more.configure(menu=menu)
+        self.mb_more.pack(side="right")
+        self._menus = (menu, theme_menu)
 
     def _on_theme_change(self, _event=None):
-        key = THEME_ORDER[self.cb_theme.current()]
-        if key == self._theme:
+        key = self.v_theme.get()
+        if key not in THEMES or key == self._theme:
             return
         self._theme = key
         self._pal = THEMES[key]
@@ -332,6 +367,25 @@ class PdfEditorApp(tk.Tk):
         data["theme"] = key
         save_settings(data)
         self._log("主题已切换为「%s」（下次启动沿用）" % self._pal["label"])
+
+    def _apply_titlebar(self):
+        """深色模式下让 Windows 标题栏也变暗（Win10 20H1+ / Win11）。"""
+        if sys.platform != "win32":
+            return
+        try:
+            import ctypes
+            hwnd = ctypes.windll.user32.GetAncestor(self.winfo_id(), 2)   # GA_ROOT
+            if not hwnd:
+                return
+            value = ctypes.c_int(1 if self._theme == "dark" else 0)
+            for attr in (20, 19):     # 20 = Win10 20H1+ / Win11，19 = 更早版本
+                if ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                        hwnd, attr, ctypes.byref(value), ctypes.sizeof(value)) == 0:
+                    break
+            # 触发一次非客户区重画（0x0001|0x0002|0x0004|0x0010|0x0020）
+            ctypes.windll.user32.SetWindowPos(hwnd, 0, 0, 0, 0, 0, 0x0037)
+        except Exception:
+            pass
 
     def _build_ui(self):
         bar = ttk.Frame(self, padding=4)
@@ -345,21 +399,14 @@ class PdfEditorApp(tk.Tk):
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
         ttk.Button(bar, text="自动标定加粗", command=self.auto_calibrate).pack(side="left")
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
-        ttk.Button(bar, text="导入 config", command=self.import_config).pack(side="left")
-        ttk.Button(bar, text="导出 config", command=self.export_config).pack(side="left")
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
         ttk.Checkbutton(bar, text="对比预览", variable=self.show_after,
                         command=self._on_toggle_after).pack(side="left")
         ttk.Button(bar, text="适应窗口", command=self.autofit).pack(side="left", padx=(6, 0))
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
         ttk.Button(bar, text="另存为…", command=self.save_as).pack(side="left")
-        ttk.Button(bar, text="帮助", command=self.show_help).pack(side="right")
-        self.cb_theme = ttk.Combobox(bar, width=5, state="readonly",
-                                     values=[THEMES[k]["label"] for k in THEME_ORDER])
-        self.cb_theme.current(THEME_ORDER.index(self._theme))
-        self.cb_theme.pack(side="right")
-        self.cb_theme.bind("<<ComboboxSelected>>", self._on_theme_change)
-        ttk.Label(bar, text="主题").pack(side="right", padx=(6, 2))
+
+        # 不常用的收进「更多 ▾」下拉：主题 / 导入导出 config / 帮助
+        self._build_more_menu(bar)
 
         content = tk.PanedWindow(self, orient="vertical", sashwidth=6, sashrelief="raised",
                                  background=self._pal["sash"], bd=0, opaqueresize=False)
