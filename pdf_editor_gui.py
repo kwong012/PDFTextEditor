@@ -8,6 +8,8 @@ pdf_editor_gui —— PDFTextEditor 图形界面（Tkinter）
 交互：
 · 鼠标滚轮 = 上下滚动；Ctrl+滚轮 = 缩放（以鼠标位置为锚点）
 · 勾选「对比预览」自动缩放到合适大小；选中文字并输入替换内容会自动开启对比
+· 表单里的草稿即时参与预览：填完「替换」不用先加清单就能看到效果（窗格是预览，点
+  「添加到清单」才真正写进规则）
 · 帮助为悬浮窗口；各面板之间分隔条可拖动调整宽高
 依赖：PyMuPDF、fontTools、numpy（见 requirements.txt）
 """
@@ -34,6 +36,7 @@ UI_FONT_SMALL = ("Microsoft YaHei UI", 8)              # 灰色微提示
 ZOOM_MIN, ZOOM_MAX = 0.2, 5.0
 TILE_MARGIN = 0.5          # 缓冲边 = 视口尺寸的 50%
 RENDER_DEBOUNCE_MS = 40
+DRAFT_DEBOUNCE_MS = 350    # 表单草稿变了之后，等这么久再重建预览（别每敲一键就重建整份文档）
 RIGHT_PANE_MIN = 400       # 右侧操作栏的最小宽度（保证表单/清单不被压扁）
 
 # ---------------- 主题（浅色 / 深色） ----------------
@@ -99,7 +102,7 @@ def save_settings(data: dict) -> None:
 HINT_OPEN = "先「打开 PDF」"
 HINT_PICK = "单击左侧预览里的文字"
 HINT_TYPE = "在「替换」里填新文字"
-HINT_ADD = "点「添加到清单」"
+HINT_ADD = "右侧是即时预览（尚未加入清单），点「添加到清单」生效"
 HINT_MORE = "继续点文字加下一条，或点「另存为…」导出"
 
 
@@ -208,6 +211,11 @@ def enable_dpi_awareness():
             pass
 
 
+def rule_key(rule: dict):
+    """规则的唯一键：原文 + 页码 + 位置（与「添加到清单」的去重口径一致）。"""
+    return (rule.get("old"), rule.get("page"), tuple(rule.get("bbox") or ()) or None)
+
+
 class PdfEditorApp(tk.Tk):
     def __init__(self, initial=None):
         super().__init__()
@@ -222,7 +230,7 @@ class PdfEditorApp(tk.Tk):
         self.src_path = None
         self.orig = None
         self._after_doc = None
-        self._after_dirty = True
+        self._preview_sig = None          # 预览文档对应的规则快照（变了才重建）
         self.page_no = 0
         self.zoom = 1.2
         self.rules = []
@@ -231,6 +239,7 @@ class PdfEditorApp(tk.Tk):
         self._tiles = {}
         self._img_items = {}
         self._render_job = None
+        self._draft_job = None            # 草稿预览的防抖定时器
         self._sel_bbox = None
         self._updating = False
         self.show_after = tk.BooleanVar(value=False)
@@ -629,10 +638,12 @@ class PdfEditorApp(tk.Tk):
         self.cb_font = ttk.Combobox(fontbox, width=18, state="readonly",
                                     values=[label for _, label in self.font_choices])
         self.cb_font.current(0)
+        self.cb_font.bind("<<ComboboxSelected>>", self._on_draft_change)
         self.cb_font.pack(side="left")
         ttk.Button(fontbox, text="…", width=3, command=self._browse_font).pack(side="left", padx=(4, 0))
         self.e_size = ttk.Entry(fontbox, width=5)
         self.e_size.insert(0, "10")
+        self.e_size.bind("<KeyRelease>", self._on_draft_change)
         self.e_size.pack(side="right", padx=(4, 0))
         ttk.Label(fontbox, text="字号").pack(side="right")
 
@@ -657,10 +668,12 @@ class PdfEditorApp(tk.Tk):
         af2 = ttk.Frame(self.adv)
         af2.grid(row=0, column=1, sticky="w", pady=4)
         self.e_border = ttk.Entry(af2, width=8)
+        self.e_border.bind("<KeyRelease>", self._on_draft_change)
         self.e_border.pack(side="left")
         ttk.Label(af2, text="间隙").pack(side="left", padx=(10, 4))
         self.cb_gap = ttk.Combobox(af2, width=5, values=["1/4", "1/3", "1/2", "1"], state="readonly")
         self.cb_gap.current(1)
+        self.cb_gap.bind("<<ComboboxSelected>>", self._on_draft_change)
         self.cb_gap.pack(side="left")
         ttk.Label(af2, text="字宽").pack(side="left", padx=(4, 0))
 
@@ -668,8 +681,10 @@ class PdfEditorApp(tk.Tk):
         self.v_scope = tk.StringVar(value="all")
         sf = ttk.Frame(self.adv)
         sf.grid(row=1, column=1, sticky="w", pady=4)
-        ttk.Radiobutton(sf, text="所有相同文本", value="all", variable=self.v_scope).pack(side="left")
-        ttk.Radiobutton(sf, text="仅选中这一处", value="single", variable=self.v_scope).pack(side="left", padx=(8, 0))
+        ttk.Radiobutton(sf, text="所有相同文本", value="all", variable=self.v_scope,
+                        command=self._on_draft_change).pack(side="left")
+        ttk.Radiobutton(sf, text="仅选中这一处", value="single", variable=self.v_scope,
+                        command=self._on_draft_change).pack(side="left", padx=(8, 0))
         self.adv.grid_remove()               # 默认收起
 
         btns = ttk.Frame(edit)
@@ -698,6 +713,7 @@ class PdfEditorApp(tk.Tk):
     def _on_align_change(self, _event=None):
         """下拉的显示文案 ↔ 内部取值（match / left）。"""
         self.v_align.set("match" if self.cb_align.current() == 0 else "left")
+        self._on_draft_change()
 
     def _set_e_old(self, text):
         """「原文字」是只读框：程序写入时临时解除只读（readonly 会忽略 insert）。"""
@@ -850,6 +866,7 @@ class PdfEditorApp(tk.Tk):
         self.cb_font.configure(values=[l for _, l in self.font_choices])
         self.cb_font.current(len(self.font_choices) - 1)
         self._log(f"已加入自定义字体: {path}")
+        self._on_draft_change()
 
     def _gap_value(self):
         s = self.cb_gap.get()
@@ -880,8 +897,8 @@ class PdfEditorApp(tk.Tk):
         self.src_path = path
         self.page_no = 0
         self.rules = []
-        self._after_dirty = True
         self._after_doc = None
+        self._preview_sig = None
         self._span_cache.clear()
         self._tiles.clear()
         self._sel_bbox = None
@@ -987,16 +1004,22 @@ class PdfEditorApp(tk.Tk):
                 and vis.x1 <= clip.x1 + 1 and vis.y1 <= clip.y1 + 1)
 
     def _ensure_after_doc(self):
-        if self.orig is None or not self.rules:
-            self._after_doc = None
+        """重建「对比」文档：清单 + 表单里的草稿一起参与；规则变了才重建。"""
+        if self.orig is None:
+            self._after_doc, self._preview_sig = None, None
             return
-        if self._after_dirty or self._after_doc is None:
+        rules = self._preview_rules()
+        if not rules:
+            self._after_doc, self._preview_sig = None, None
+            return
+        sig = json.dumps(rules, sort_keys=True, ensure_ascii=False, default=str)
+        if self._after_doc is None or sig != self._preview_sig:
             try:
-                self._after_doc = self._build_working()
-                self._after_dirty = False
+                self._after_doc = self._build_working(rules)
+                self._preview_sig = sig
             except Exception as e:
                 self._log(f"生成预览失败: {e}")
-                self._after_doc = None
+                self._after_doc, self._preview_sig = None, None
 
     def _render_all(self):
         if self.orig is None:
@@ -1249,12 +1272,34 @@ class PdfEditorApp(tk.Tk):
         self._log(f'选中: {text!r} (字体 {font or "?"}, {size:.1f}pt)')
         if self.e_new.get().strip():
             self._enable_after()
+        self._schedule_draft_preview()
 
     def _on_new_text(self):
         self._update_add_state()
         self._update_hint()
         if self.e_old.get().strip() and self.e_new.get().strip():
             self._enable_after()
+        self._schedule_draft_preview()
+
+    def _on_draft_change(self, _event=None):
+        """字体 / 字号 / 对齐 / 间隙 / 范围等影响绘制的项变了：刷新即时预览。"""
+        if self.orig is None:
+            return
+        if self._draft_rule() is not None:
+            self._enable_after()
+        self._schedule_draft_preview()
+
+    def _schedule_draft_preview(self):
+        """草稿变了：稍等一下再重建预览，别每敲一键就重建整份文档。"""
+        if self.orig is None:
+            return
+        if self._draft_job is not None:
+            self.after_cancel(self._draft_job)
+        self._draft_job = self.after(DRAFT_DEBOUNCE_MS, self._do_draft_preview)
+
+    def _do_draft_preview(self):
+        self._draft_job = None
+        self._render_all()
 
     def _nearest_left_border(self, rect):
         page = self._page()
@@ -1292,50 +1337,88 @@ class PdfEditorApp(tk.Tk):
         self.canvas.delete("sel")
         self._update_add_state()
         self._update_hint()
+        self._schedule_draft_preview()      # 草稿没了：预览回到「只按清单」
 
     # ================= 规则 =================
-    def add_rule(self):
-        old = self.e_old.get().strip()
-        new = self.e_new.get().strip()
-        if not old:
-            messagebox.showwarning(APP_TITLE, "请先在左侧预览里点选要修改的文字.")
-            return
-        if not new:
-            messagebox.showwarning(APP_TITLE, '请填写"替换"内容.')
-            return
-        rule = {"old": old, "new": new,
+    def _form_rule(self):
+        """按表单当前内容组装一条规则（不校验、不去重）。"""
+        try:
+            size = float(self.e_size.get() or 10)
+        except ValueError:
+            size = 10.0
+        rule = {"old": self.e_old.get().strip(),
+                "new": self.e_new.get().strip(),
                 "font": self._selected_font_path(),
-                "font_size": float(self.e_size.get() or 10),
+                "font_size": size,
                 "bold_stroke": self.bold_stroke}
         if self.v_align.get() == "left":
             rule["align"] = "left"
             try:
                 rule["left_border_x"] = float(self.e_border.get())
             except Exception:
-                messagebox.showwarning(APP_TITLE, '左对齐需要"左边框x" (点选片段会自动填入).')
-                return
-            rule["left_gap"] = self._gap_value() * rule["font_size"]
+                rule["left_border_x"] = None            # 还没定位到左边框
+            rule["left_gap"] = self._gap_value() * size
         if self.v_scope.get() == "single":
             rule["scope"] = "single"
             rule["page"] = self.page_no
             if self._sel_bbox is not None:
                 rule["bbox"] = [round(v, 2) for v in (self._sel_bbox.x0, self._sel_bbox.y0,
                                                       self._sel_bbox.x1, self._sel_bbox.y1)]
-        key = (rule["old"], rule.get("page"), tuple(rule.get("bbox", ())) or None)
+        return rule
+
+    def _draft_rule(self):
+        """表单草稿（只用于预览）；内容不全或参数没备齐时返回 None。"""
+        rule = self._form_rule()
+        if not rule["old"] or not rule["new"]:
+            return None
+        if rule.get("align") == "left" and rule.get("left_border_x") is None:
+            # 左对齐但还没算出边框位置：预览先按「保持原位」，免得画到莫名其妙的地方
+            for k in ("align", "left_border_x", "left_gap"):
+                rule.pop(k, None)
+        return rule
+
+    def _preview_rules(self):
+        """预览规则 = 清单 + 草稿；原文/页/位置都相同的，草稿顶掉清单里那条。
+
+        不这样做的话同一条会被匹配两次：删两遍、字也叠着画两遍。
+        """
+        rules = [dict(r) for r in self.rules]
+        draft = self._draft_rule()
+        if draft is None:
+            return rules
+        key = rule_key(draft)
+        for i, r in enumerate(rules):
+            if rule_key(r) == key:
+                rules[i] = draft
+                break
+        else:
+            rules.append(draft)
+        return rules
+
+    def add_rule(self):
+        rule = self._form_rule()
+        if not rule["old"]:
+            messagebox.showwarning(APP_TITLE, "请先在左侧预览里点选要修改的文字.")
+            return
+        if not rule["new"]:
+            messagebox.showwarning(APP_TITLE, '请填写"替换"内容.')
+            return
+        if rule.get("align") == "left" and rule.get("left_border_x") is None:
+            messagebox.showwarning(APP_TITLE, '左对齐需要"左边框x" (点选片段会自动填入).')
+            return
+        key = rule_key(rule)
         replaced = False
         for i, r in enumerate(self.rules):
-            rkey = (r["old"], r.get("page"), tuple(r.get("bbox", ())) or None)
-            if rkey == key:
+            if rule_key(r) == key:
                 self.rules[i] = rule
                 replaced = True
                 break
         if not replaced:
             self.rules.append(rule)
-        self._after_dirty = True
         self._refresh_rules()
         self._enable_after()
         self._render_all()
-        self._log(("已更新" if replaced else "已添加") + f"规则: {old!r} -> {new!r}")
+        self._log(("已更新" if replaced else "已添加") + f"规则: {rule['old']!r} -> {rule['new']!r}")
         self._clear_fields()
 
     def del_rule(self):
@@ -1343,14 +1426,12 @@ class PdfEditorApp(tk.Tk):
             r = self.rules.pop(int(iid))
             self._log(f"已删除: {r['old']!r}")
             break
-        self._after_dirty = True
         self._refresh_rules()
         self._render_all()
         self._clear_fields()
 
     def clear_rules(self):
         self.rules = []
-        self._after_dirty = True
         self._refresh_rules()
         self._render_all()
         self._log("清单已清空")
@@ -1367,12 +1448,14 @@ class PdfEditorApp(tk.Tk):
         self._update_hint()
 
     # ================= 文档构建 =================
-    def _build_working(self):
+    def _build_working(self, rules=None):
+        """构建"改后"文档。省略 rules 时用修改清单（导出用）；传参时按那份构建（预览用）。"""
         if self.orig is None:
             raise RuntimeError("未打开 PDF")
+        rules = self.rules if rules is None else rules
         doc = fitz.open(self.src_path)
-        cfg = {"replacements": self.rules}
-        targets = core.collect_targets(doc, self.rules, cfg)
+        cfg = {"replacements": rules}
+        targets = core.collect_targets(doc, rules, cfg)
         core.apply_replacements(doc, cfg, targets)
         return doc
 
@@ -1397,7 +1480,6 @@ class PdfEditorApp(tk.Tk):
         self.bold_stroke = bw
         for r in self.rules:
             r["bold_stroke"] = bw
-        self._after_dirty = True
         self._render_all()
         self._log(f'自动标定完成: bold_stroke = {bw} (用 {text!r} 校准)')
 
@@ -1503,7 +1585,6 @@ class PdfEditorApp(tk.Tk):
             src = cfg["src"] if os.path.isabs(cfg["src"]) else os.path.join(os.path.dirname(path), cfg["src"])
             if os.path.exists(src):
                 self.load_pdf(src)
-        self._after_dirty = True
         self._refresh_rules()
         self._render_all()
         self._log(f"已导入 {len(self.rules)} 条规则: {path}")
