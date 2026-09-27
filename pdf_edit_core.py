@@ -522,6 +522,41 @@ def all_font_choices() -> list:
     return out
 
 
+def int_to_rgb(c: int) -> tuple:
+    """PDF 里存的 sRGB 整数 -> (r, g, b) 0-255。"""
+    c = int(c or 0)
+    return ((c >> 16) & 255, (c >> 8) & 255, c & 255)
+
+
+def rgb_to_int(rgb) -> int:
+    r, g, b = [int(v) & 255 for v in rgb]
+    return (r << 16) | (g << 8) | b
+
+
+def norm_rgb(c, default=(0, 0, 0)) -> tuple:
+    """规范化颜色：(r,g,b) 0-255 / 0-1 小数 / '#rrggbb' / None -> (r,g,b) 0-255。"""
+    if c is None:
+        return tuple(default)
+    if isinstance(c, str):
+        s = c.strip().lstrip("#")
+        if len(s) == 6:
+            try:
+                return tuple(int(s[i:i + 2], 16) for i in (0, 2, 4))
+            except ValueError:
+                return tuple(default)
+        return tuple(default)
+    try:
+        vals = [float(v) for v in c]
+    except (TypeError, ValueError):
+        return tuple(default)
+    if len(vals) < 3:
+        return tuple(default)
+    vals = vals[:3]
+    if max(vals) <= 1.0:                                  # 0-1 浮点写法
+        return tuple(int(round(v * 255)) for v in vals)
+    return tuple(max(0, min(255, int(round(v)))) for v in vals)
+
+
 def resolve_settings(rule: dict, cfg: dict) -> dict:
     """把全局配置 + 单条规则合并成最终绘制参数。"""
     size = float(rule.get("font_size", cfg.get("font_size", 10)))
@@ -530,7 +565,8 @@ def resolve_settings(rule: dict, cfg: dict) -> dict:
         "font_face": int(rule.get("font_face") or cfg.get("font_face") or 0),
         "font_name": rule.get("font_name") or cfg.get("font_name", "simsun"),
         "font_size": size,
-        "bold_stroke": float(rule.get("bold_stroke", cfg.get("bold_stroke", 0.03))),
+        "color": norm_rgb(rule.get("color", cfg.get("color")), (0, 0, 0)),
+        "bold_stroke": float(rule.get("bold_stroke", cfg.get("bold_stroke", 0.0))),
         "pad_x": float(rule.get("pad_x", cfg.get("pad_x", 0.7))),
         "pad_y": float(rule.get("pad_y", cfg.get("pad_y", 1.2))),
     }
@@ -668,11 +704,12 @@ def apply_replacements(doc, cfg, targets=None):
             cache[key] = (ttf, _font_metrics(ttf))
         ttf, metrics = cache[key]
         pos = compute_positions(origins, rule["new"], rule, st["font_size"], metrics)
+        rgb = tuple(v / 255.0 for v in st["color"])          # 跟随原文颜色（默认）
         for ch, (x, y) in zip(rule["new"], pos):
             page.insert_text(
                 fitz.Point(x, y), ch,
                 fontsize=st["font_size"], fontname=st["font_name"], fontfile=ttf,
-                color=(0, 0, 0), fill=(0, 0, 0),
+                color=rgb, fill=rgb,
                 render_mode=2, border_width=st["bold_stroke"],
             )
     return len(targets)

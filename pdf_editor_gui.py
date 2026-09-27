@@ -19,7 +19,7 @@ import json
 import os
 import sys
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import colorchooser, filedialog, messagebox, ttk
 
 import fitz
 import numpy as np
@@ -264,6 +264,9 @@ class PdfEditorApp(tk.Tk):
         self._font_info = None                        # 当前片段识别出的字体信息
         self._font_toast = None                       # 「缺少字体」浮窗
         self._sel_size = 10.0                         # 当前选中片段的字号
+        self._sel_rgb = None                          # 当前选中片段的原文颜色 (r,g,b)
+        self._color_override = None                   # 用户自选颜色；None = 跟随原文
+        self._picking = False                         # 取色器：正等着在页面上点一下
 
         # 主题：默认浅色；上次的选择会记住（settings.json 与字体缓存同目录）
         saved_theme = load_settings().get("theme")
@@ -676,23 +679,37 @@ class PdfEditorApp(tk.Tk):
         ttk.Button(inf, text="字体文件夹", style="Ghost.TButton",
                    command=self._open_font_folder).pack(side="right", padx=(4, 0))
 
-        ttk.Label(edit, text="对齐").grid(row=4, column=0, sticky="w", pady=5)
+        ttk.Label(edit, text="颜色").grid(row=4, column=0, sticky="w", pady=5)
+        cf = ttk.Frame(edit)
+        cf.grid(row=4, column=1, columnspan=2, sticky="w", pady=5)
+        self.sw_color = tk.Label(cf, text="   ", width=2, relief="solid", bd=1,
+                                 cursor="hand2", bg="#000000")
+        self.sw_color.pack(side="left")
+        self.sw_color.bind("<Button-1>", lambda e: self._pick_color_dialog())
+        ttk.Button(cf, text="取色器", width=7, style="Ghost.TButton",
+                   command=self._start_eyedropper).pack(side="left", padx=(6, 0))
+        ttk.Button(cf, text="原文", width=5, style="Ghost.TButton",
+                   command=self._use_original_color).pack(side="left", padx=(4, 0))
+        self.lbl_color = ttk.Label(cf, text="", style="Muted.TLabel")
+        self.lbl_color.pack(side="left", padx=(8, 0))
+
+        ttk.Label(edit, text="对齐").grid(row=5, column=0, sticky="w", pady=5)
         self.v_align = tk.StringVar(value="match")
         self.cb_align = ttk.Combobox(edit, width=14, state="readonly",
                                      values=["保持原位", "左对齐留白"])
         self.cb_align.current(0)
-        self.cb_align.grid(row=4, column=1, sticky="w", pady=5)
+        self.cb_align.grid(row=5, column=1, sticky="w", pady=5)
         self.cb_align.bind("<<ComboboxSelected>>", self._on_align_change)
 
         # ── 高级项：默认收起，点一行小字展开 ──
         self._adv_open = False
         self.lbl_adv = ttk.Label(edit, text=f"▸ {ADV_LABEL}",
                                  style="Muted.TLabel", cursor="hand2")
-        self.lbl_adv.grid(row=5, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        self.lbl_adv.grid(row=6, column=0, columnspan=3, sticky="w", pady=(8, 0))
         self.lbl_adv.bind("<Button-1>", self._toggle_advanced)
 
         self.adv = ttk.Frame(edit)
-        self.adv.grid(row=6, column=0, columnspan=3, sticky="we")
+        self.adv.grid(row=7, column=0, columnspan=3, sticky="we")
         ttk.Label(self.adv, text="左边框位置").grid(row=0, column=0, sticky="w", pady=4)
         af2 = ttk.Frame(self.adv)
         af2.grid(row=0, column=1, sticky="w", pady=4)
@@ -731,7 +748,7 @@ class PdfEditorApp(tk.Tk):
         self.adv.grid_remove()               # 默认收起
 
         btns = ttk.Frame(edit)
-        btns.grid(row=7, column=0, columnspan=3, sticky="we", pady=(10, 0))
+        btns.grid(row=8, column=0, columnspan=3, sticky="we", pady=(10, 0))
         btns.columnconfigure(0, weight=1)       # 主按钮占满，次按钮靠右
         self.btn_add = ttk.Button(btns, text="添加到清单", style="Accent.TButton",
                                   command=self.add_rule)
@@ -739,6 +756,7 @@ class PdfEditorApp(tk.Tk):
         ttk.Button(btns, text="取消选择", style="Ghost.TButton",
                    command=self.clear_selection).grid(row=0, column=1, padx=(6, 0))
         edit.columnconfigure(1, weight=1)
+        self._update_color_widgets()
 
     def _toggle_advanced(self, _event=None):
         """展开/收起「高级」那一组低频项。"""
@@ -1044,6 +1062,75 @@ class PdfEditorApp(tk.Tk):
         self.e_stroke.delete(0, "end")
         self.e_stroke.insert(0, fmt_num(v if v > 0 else DEFAULT_STROKE, 3))
         self._on_draft_change()
+
+    # ---------- 颜色：默认跟随原文；可调色板选色 / 页面上取色 ----------
+    def _eff_color(self):
+        """当前生效的文字颜色：自选 > 原文颜色 > 黑。"""
+        if self._color_override is not None:
+            return tuple(self._color_override)
+        if self._sel_rgb is not None:
+            return tuple(self._sel_rgb)
+        return (0, 0, 0)
+
+    def _update_color_widgets(self):
+        rgb = self._eff_color()
+        hexs = "#%02x%02x%02x" % rgb
+        try:
+            self.sw_color.configure(bg=hexs)
+        except tk.TclError:
+            pass
+        src = ("自定义" if self._color_override is not None
+               else ("跟随原文" if self._sel_rgb is not None else "默认黑"))
+        self.lbl_color.configure(text=f"{hexs} · {src}")
+
+    def _pick_color_dialog(self):
+        """点色块 -> 调色板选颜色。"""
+        rgb, _hex = colorchooser.askcolor(color="#%02x%02x%02x" % self._eff_color(),
+                                          title="选择文字颜色")
+        if rgb:
+            self._color_override = tuple(int(round(v)) for v in rgb)
+            self._update_color_widgets()
+            self._log("颜色改为 #%02x%02x%02x（自定义）" % self._color_override)
+            self._on_draft_change()
+
+    def _use_original_color(self):
+        """恢复"跟随原文颜色"。"""
+        self._color_override = None
+        self._update_color_widgets()
+        self._log("颜色恢复为跟随原文： #%02x%02x%02x" % self._eff_color())
+        self._on_draft_change()
+
+    def _start_eyedropper(self):
+        """取色器：进入取色状态，随后在页面上点一下即取该处颜色。"""
+        if self.orig is None:
+            messagebox.showinfo(APP_TITLE, "请先打开 PDF.")
+            return
+        self._picking = True
+        try:
+            self.canvas.configure(cursor="crosshair")
+        except tk.TclError:
+            pass
+        self._set_hint("取色器：在左侧页面上点一下要取的颜色")
+        self._log("取色器：在左侧页面上点一下")
+
+    def _sample_color_at(self, x, y):
+        """页面上取色：取这一小片里"最深的像素"（文字总比底色深）。"""
+        try:
+            pm = self._page().get_pixmap(matrix=fitz.Matrix(8, 8),
+                                         clip=fitz.Rect(x - 2, y - 2, x + 2, y + 2),
+                                         alpha=False)
+        except Exception:
+            return None
+        s, n = pm.samples, pm.n
+        if n < 3:
+            return None
+        best, best_lum = None, 1e9
+        for i in range(0, len(s) - n + 1, n):
+            r, g, b = s[i], s[i + 1], s[i + 2]
+            lum = 0.299 * r + 0.587 * g + 0.114 * b
+            if lum < best_lum:
+                best, best_lum = (r, g, b), lum
+        return best
 
     def _update_add_state(self):
         state = "normal" if (self.e_old.get().strip() and self.e_new.get().strip()) else "disabled"
@@ -1423,6 +1510,20 @@ class PdfEditorApp(tk.Tk):
             return
         x = self.canvas.canvasx(event.x) / self.zoom
         y = self.canvas.canvasy(event.y) / self.zoom
+        if self._picking:                     # 取色器：这一下是来取色的
+            self._picking = False
+            try:
+                self.canvas.configure(cursor="")
+            except tk.TclError:
+                pass
+            rgb = self._sample_color_at(x, y)
+            if rgb:
+                self._color_override = tuple(rgb)
+                self._update_color_widgets()
+                self._log("取色器取到 #%02x%02x%02x" % rgb)
+                self._on_draft_change()
+            self._update_hint()
+            return
         d = self._span_at(fitz.Point(x, y))
         if not d:
             return
@@ -1431,6 +1532,10 @@ class PdfEditorApp(tk.Tk):
         self._set_e_old(text)
         self.e_size.delete(0, "end")
         self.e_size.insert(0, fmt_num(size))     # 保精度：10.45 就是 10.45，不取整
+        # 颜色默认跟随原文（灰字/彩字不会被悄悄改成黑色）
+        self._sel_rgb = core.int_to_rgb(d["color"])
+        self._color_override = None
+        self._update_color_widgets()
         # 字体自动跟随：按字体名在系统字体里定位（含粗/斜）；系统里没有就不顶替，弹浮窗
         info = core.resolve_font(font, bold=bool(d["flags"] & 16), italic=bool(d["flags"] & 2))
         self._font_info = info
@@ -1520,9 +1625,12 @@ class PdfEditorApp(tk.Tk):
         self._set_e_old("")
         self.e_new.delete(0, "end")
         self._sel_bbox = None
+        self._sel_rgb = None
+        self._color_override = None
         self.canvas.delete("sel")
         self._update_add_state()
         self._update_hint()
+        self._update_color_widgets()
         self._schedule_draft_preview()      # 草稿没了：预览回到「只按清单」
 
     # ================= 规则 =================
@@ -1538,6 +1646,7 @@ class PdfEditorApp(tk.Tk):
                 "font": fp or "",
                 "font_face": ff,
                 "font_size": size,
+                "color": list(self._eff_color()),
                 "bold_stroke": self._stroke_value()}
         if self.v_align.get() == "left":
             rule["align"] = "left"
@@ -1663,15 +1772,16 @@ class PdfEditorApp(tk.Tk):
             return
         ruled = {r["old"] for r in self.rules}
         cand = None
-        for rect, text, font, size in self._spans_of_page(self.page_no):
-            if text.strip() and text not in ruled and (cand is None or len(text) > len(cand[1])):
-                cand = (rect, text, font, size)
+        for d in self._span_dicts(self.page_no):
+            t = d["text"]
+            if t.strip() and t not in ruled and (cand is None or len(t) > len(cand["text"])):
+                cand = d
         if not cand:
             messagebox.showinfo(APP_TITLE, "没有可用于标定的文字.")
             return
-        rect, text, font, size = cand
         try:
-            bw = self._calibrate(rect, text, font, size)
+            bw = self._calibrate(cand["rect"], cand["text"], cand["font"], cand["size"],
+                                 core.int_to_rgb(cand["color"]))
         except Exception as e:
             self._log(f"标定失败: {e}")
             return
@@ -1680,12 +1790,13 @@ class PdfEditorApp(tk.Tk):
             r["bold_stroke"] = bw
         self._sync_stroke_widgets(bw)
         self._render_all()
-        self._log(f"自动标定完成: 描边 = {fmt_num(bw, 3)} (用 {text!r} 校准)"
+        self._log(f"自动标定完成: 描边 = {fmt_num(bw, 3)} (用 {cand['text']!r} 校准)"
                   + ("，判定原文不是伪加粗" if bw <= 0 else ""))
 
-    def _calibrate(self, rect, text, font, size):
+    def _calibrate(self, rect, text, font, size, color=(0, 0, 0)):
         info = core.resolve_font(font)
         font_file = core.ensure_ttf(info["path"], info["face"])
+        rgb = tuple(v / 255.0 for v in core.norm_rgb(color))
         zoom = 6
         clip = fitz.Rect(rect.x0 - 2, rect.y0 - 2, rect.x1 + 2, rect.y1 + 2)
 
@@ -1714,7 +1825,7 @@ class PdfEditorApp(tk.Tk):
             pg.apply_redactions(**core.PDF_REDACT)
             for ch, (x, y) in zip(text, origins):
                 pg.insert_text(fitz.Point(x, y), ch, fontsize=size, fontname="simsun",
-                               fontfile=font_file, color=(0, 0, 0), fill=(0, 0, 0),
+                               fontfile=font_file, color=rgb, fill=rgb,
                                render_mode=2, border_width=bw)
             got = gray(doc)
             if got.shape != ref.shape:
@@ -1762,6 +1873,7 @@ class PdfEditorApp(tk.Tk):
             "font_face": self._selected_font()[1],
             "font_name": "simsun",
             "font_size": self._form_rule()["font_size"],
+            "color": list(self._eff_color()),
             "bold_stroke": self._stroke_value(),
             "replacements": self.rules,
         }
