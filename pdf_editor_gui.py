@@ -44,8 +44,8 @@ THEMES = {
         border="#c9c9c9", btn="#e8e8e8", btn_hover="#dcdcdc",
         sel_bg="#cfe4ff", sel_fg="#1a1a1a",   # 选中项
         head="#e3e3e3",                       # 表头
-        sash="#d0d0d0",                       # 分隔条
-        canvas="#3b3b3b",                     # 预览画布底色（页面四周）
+        sash="#c4c4c4",                       # 分隔条
+        canvas="#e4e6e8",                     # 预览画布底色（页面四周）
         accent="#0066cc", ok="#00aa66", warn="#cc6600",
         muted="#777777", mark="#e53935", disabled="#a0a0a0",
     ),
@@ -56,7 +56,7 @@ THEMES = {
         border="#4d4d4d", btn="#3a3a3a", btn_hover="#4a4a4a",
         sel_bg="#3f5b78", sel_fg="#ffffff",
         head="#333333",
-        sash="#1f1f1f",
+        sash="#4a4a4a",
         canvas="#1c1c1c",
         accent="#4fc3f7", ok="#4ade80", warn="#fbbf24",
         muted="#9a9a9a", mark="#ff5252", disabled="#6f6f6f",
@@ -253,7 +253,7 @@ class PdfEditorApp(tk.Tk):
                      bordercolor=p["border"], lightcolor=p["btn"], darkcolor=p["btn"],
                      focuscolor=p["sel_bg"], padding=(8, 3))
         st.map("TButton",
-               background=[("pressed", p["sel_bg"]), ("active", p["btn_hover"]), ("disabled", p["bg"])],
+               background=[("pressed", p["sel_bg"]), ("active", p["btn_hover"]), ("disabled", p["btn"])],
                foreground=[("disabled", p["disabled"])])
 
         st.configure("TMenubutton", background=p["btn"], foreground=p["fg"],
@@ -391,22 +391,21 @@ class PdfEditorApp(tk.Tk):
         bar = ttk.Frame(self, padding=4)
         bar.pack(side="top", fill="x")
         ttk.Button(bar, text="打开 PDF", command=self.open_pdf).pack(side="left")
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Button(bar, text="◀", width=3, command=lambda: self.change_page(-1)).pack(side="left")
         self.lbl_page = ttk.Label(bar, text="0/0", width=7, anchor="center")
         self.lbl_page.pack(side="left")
         ttk.Button(bar, text="▶", width=3, command=lambda: self.change_page(1)).pack(side="left")
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Button(bar, text="自动标定加粗", command=self.auto_calibrate).pack(side="left")
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Checkbutton(bar, text="对比预览", variable=self.show_after,
                         command=self._on_toggle_after).pack(side="left")
-        ttk.Button(bar, text="适应窗口", command=self.autofit).pack(side="left", padx=(6, 0))
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
-        ttk.Button(bar, text="另存为…", command=self.save_as).pack(side="left")
+        ttk.Button(bar, text="适应窗口", command=self.autofit).pack(side="left")
 
-        # 不常用的收进「设置 ▾」下拉：主题 / 导入导出 config / 帮助
+        # 右端动作区：「设置 ▾」在最右，「另存为…」紧挨其左（与右栏右缘同一条竖线）
         self._build_more_menu(bar)
+        ttk.Button(bar, text="另存为…", command=self.save_as).pack(side="right", padx=(0, 8))
 
         content = tk.PanedWindow(self, orient="vertical", sashwidth=6, sashrelief="raised",
                                  background=self._pal["sash"], bd=0, opaqueresize=False)
@@ -420,7 +419,7 @@ class PdfEditorApp(tk.Tk):
 
         # ---- 左：缩放条 + 画布 ----
         left = ttk.Frame(outer)
-        outer.add(left, stretch="always", minsize=420)
+        outer.add(left, stretch="always", minsize=320)
 
         zbar = ttk.Frame(left, padding=(6, 4))
         zbar.pack(side="top", fill="x")
@@ -456,7 +455,7 @@ class PdfEditorApp(tk.Tk):
         self.lbl_before.pack(side="top", anchor="w", padx=4)
         self.canvas = tk.Canvas(f_before, background=self._pal["canvas"], highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
-        self.paned.add(f_before, stretch="always", minsize=280)
+        self.paned.add(f_before, stretch="always", minsize=180)
 
         self.f_after = ttk.Frame(self.paned)
         self.lbl_after = ttk.Label(self.f_after, text="改后 · 只读预览",
@@ -495,7 +494,8 @@ class PdfEditorApp(tk.Tk):
         pane1 = ttk.Frame(self.right_paned)
         self._pane_edit = pane1
         self._build_edit_form(pane1)
-        self.right_paned.add(pane1, stretch="never", minsize=210, height=380)
+        # 初始高度交给 _apply_minsizes 按表单自然高度定，避免下方留死区
+        self.right_paned.add(pane1, stretch="never", minsize=210)
 
         pane2 = ttk.Frame(self.right_paned)
         self._build_rules_pane(pane2)
@@ -509,8 +509,11 @@ class PdfEditorApp(tk.Tk):
         self._style_widgets()
 
     def _build_edit_form(self, parent):
-        self.lbl_hint = ttk.Label(parent, text="", foreground=self._pal["accent"], wraplength=380, justify="left")
+        self.lbl_hint = ttk.Label(parent, text="", foreground=self._pal["accent"], wraplength=340, justify="left")
         self.lbl_hint.pack(fill="x", pady=(0, 6))
+        # 宽度跟随右栏，避免固定 wraplength 把右栏最小宽度顶大
+        parent.bind("<Configure>",
+                    lambda e: self.lbl_hint.configure(wraplength=max(220, e.width - 24)))
 
         edit = ttk.LabelFrame(parent, text="编辑选中片段", padding=6)
         edit.pack(fill="x")
@@ -606,10 +609,11 @@ class PdfEditorApp(tk.Tk):
             self.update_idletasks()
         except tk.TclError:
             return
-        # 右栏最小宽度：取编辑表单请求宽度 + 边距
+        # 右栏最小宽度：取编辑表单请求宽度 + 边距；窄窗口时按窗宽比例封顶，避免内部约束打架
         try:
             need_w = max(self._pane_edit.winfo_reqwidth(),
-                         self.right_paned.winfo_reqwidth()) + 30
+                         self.right_paned.winfo_reqwidth()) + 16
+            need_w = min(need_w, max(320, int(self.winfo_width() * 0.36)))
             self.outer.paneconfigure(self.right_frame, minsize=need_w)
             # 初始宽度若小于最小宽度，直接撑到最小宽度，避免一上来就被裁切
             if self.right_frame.winfo_width() < need_w:
@@ -625,6 +629,8 @@ class PdfEditorApp(tk.Tk):
                 if avail and form_h + 110 > avail:
                     form_h = max(150, avail - 110)
                 self.right_paned.paneconfigure(panes[0], minsize=form_h)
+                # 把分隔条直接落到表单自然底边（只设 minsize 不会收回被撑开的高度）
+                self.right_paned.sash_place(0, 0, form_h)
             except tk.TclError:
                 pass
 
@@ -999,7 +1005,7 @@ class PdfEditorApp(tk.Tk):
             panes = [str(p) for p in self.paned.panes()]
             if self.show_after.get():
                 if str(self.f_after) not in panes:
-                    self.paned.add(self.f_after, stretch="always", minsize=280)
+                    self.paned.add(self.f_after, stretch="always", minsize=180)
             else:
                 if str(self.f_after) in panes:
                     self.paned.forget(self.f_after)
