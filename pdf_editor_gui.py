@@ -469,7 +469,7 @@ class PdfEditorApp(tk.Tk):
     def _build_ui(self):
         bar = ttk.Frame(self, padding=(8, 6), style="Toolbar.TFrame")
         bar.pack(side="top", fill="x")
-        ttk.Separator(self, orient="horizontal").pack(fill="x")     # 工具栏与内容的分界线
+        # 工具栏靠自身底色与内容区区分，不再画分界线
         # ── 右端：设置 ▾（先占位，窄窗口时优先保证它可见）──
         self._build_more_menu(bar)
         ttk.Separator(bar, orient="vertical").pack(side="right", fill="y", padx=8)
