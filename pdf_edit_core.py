@@ -453,8 +453,14 @@ def resolve_font(pdf_name: str, bold: bool = False, italic: bool = False) -> dic
     n, n_bold, n_italic = _style_of(clean)
     bold = bool(bold or n_bold)
     italic = bool(italic or n_italic)
-    if clean.lower().startswith("type3"):        # Type3：每个字是独立矢量程序，无从得知字体
+    if clean.lower().startswith("type3"):
+        # Type3：字形是这个 PDF 自带的绘制程序（常见于网页/MD 转 PDF、老 dvips 位图字体），
+        # 系统里不可能有对应字体文件。不能当"缺字体"报警 —— 那会让用户去找一个根本
+        # 下载不到的字体。这里直接用可读的中文替代字体，界面另作说明。
         n = ""
+        is_type3 = True
+    else:
+        is_type3 = False
 
     cand, src = None, ""
     if n:
@@ -481,18 +487,23 @@ def resolve_font(pdf_name: str, bold: bool = False, italic: bool = False) -> dic
                 src = "alias"
 
     if cand is None:
-        # 没找到：给一个建议替身，但标记为 missing —— 界面必须让用户明确选择
+        # 没找到：给一个建议替身。Type3 是"PDF 自带字形"，标成 type3（界面说明"已近似"，
+        # 不弹缺字体浮窗）；其余真缺字体的标成 missing —— 界面必须让用户明确选择。
         sug, _tag = _lookup_index(_guess_substitute(clean or raw), bold, italic)
         if sug is None:
             sug = {"path": DEFAULT_FONT, "face": 0, "family": "宋体 SimSun",
                    "bold": bold, "italic": italic}
-        return {"path": sug["path"], "face": int(sug.get("face") or 0),
+        base = {"path": sug["path"], "face": int(sug.get("face") or 0),
                 "family": sug.get("family") or os.path.basename(sug["path"]),
                 "bold": bool(sug.get("bold")), "italic": bool(sug.get("italic")),
-                "source": "missing", "raw": raw or "未知",
-                "suggest": {"path": sug["path"], "face": int(sug.get("face") or 0),
-                            "family": sug.get("family") or os.path.basename(sug["path"])},
-                "note": f"缺少字体：{raw or '未知'}"}
+                "raw": raw}
+        if is_type3:
+            return dict(base, source="type3", suggest=None,
+                        note="Type3 内嵌字形：字形由 PDF 自带，系统里没有对应字体文件")
+        return dict(base, source="missing", raw=raw or "未知",
+                    suggest={"path": sug["path"], "face": int(sug.get("face") or 0),
+                             "family": sug.get("family") or os.path.basename(sug["path"])},
+                    note=f"缺少字体：{raw or '未知'}")
     return {"path": cand["path"], "face": int(cand.get("face") or 0),
             "family": cand.get("family") or os.path.basename(cand["path"]),
             "bold": bool(cand.get("bold")), "italic": bool(cand.get("italic")),

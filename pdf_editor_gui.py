@@ -1022,6 +1022,14 @@ class PdfEditorApp(tk.Tk):
     def _show_font_info(self, info, size):
         """把"识别到了什么字体/字号"写在界面上；缺字体就明确提示 + 给出字体文件夹入口。"""
         src = (info or {}).get("source")
+        if src == "type3":
+            # Type3 不是"你缺字体"：字形是 PDF 自带的绘制程序，永远下载不到对应字体文件。
+            # 所以这里不报警、不给字体文件夹按钮，只说明"已按某个中文字体近似"。
+            self._set_font_row(
+                f"内嵌字形（{info.get('raw')}）：常见于网页/MD 转 PDF · "
+                f"系统里没有对应字体文件，已用 {info.get('family')} 近似 · {fmt_num(size)}pt",
+                self._pal["muted"], show_button=False)
+            return
         if src == "missing":
             self._set_font_row(
                 f"⚠ 缺少字体 {info.get('raw')}：把字体文件放进下面的文件夹，"
@@ -1172,6 +1180,7 @@ class PdfEditorApp(tk.Tk):
         self._sel_bbox = None
         self._set_font_row("")               # 换文档了：识别行收起
         self._spans_of_page(self.page_no)      # 预热当前页片段缓存
+        self._page_diag(self.page_no)
         self._refresh_rules()
         self.title(f"{APP_TITLE} — {os.path.basename(path)}")
         self._log(f"已打开: {path} ({self.orig.page_count} 页)")
@@ -1191,6 +1200,7 @@ class PdfEditorApp(tk.Tk):
             self._tiles.clear()
             self._render_all()
             self.lbl_page.config(text=f"{self.page_no + 1}/{self.orig.page_count}")
+            self._page_diag(self.page_no)
 
     # ================= 渲染（只画可见区域） =================
     def _span_dicts(self, pno):
@@ -1206,6 +1216,34 @@ class PdfEditorApp(tk.Tk):
                               "color": int(span.get("color", 0))})
             self._span_cache[pno] = spans
         return self._span_cache[pno]
+
+    def _page_diag(self, pno):
+        """本页文字层概况写进日志：让用户明白为什么"点不中"或者"只能选一个字"。
+
+        - 片段数 0：没有文字层（图片扫描，或文字已被转成矢量轮廓）—— 点选不可用
+        - Type3 片段：字形由 PDF 自带（网页/MD 转 PDF 常见），这类文件常常一个字一个片段
+        - 无文字映射的字形：原文会显示成乱码，可在「原文」里手改
+        """
+        spans = self._span_dicts(pno)
+        n = len(spans)
+        if n == 0:
+            self._log("本页没有文字层（可能是图片扫描，或文字已被转成矢量）：点选不可用")
+            return
+        t3 = sum(1 for d in spans if str(d["font"]).lower().startswith("type3"))
+        bad = 0
+        try:
+            for sp in self.orig[pno].get_texttrace():
+                for ch in sp.get("chars", ()):
+                    if ch[0] in (0, 0xFFFD) or ch[0] < 0:
+                        bad += 1
+        except Exception:
+            pass
+        msg = f"本页可选取片段 {n} 个"
+        if t3:
+            msg += f"（其中 {t3} 个是 Type3 内嵌字形，常见于网页/MD 转 PDF，粒度可能细到单个字）"
+        if bad:
+            msg += f"；{bad} 个字形没有文字映射，原文可能是乱码（可在「原文」里手改）"
+        self._log(msg)
 
     def _spans_of_page(self, pno):
         """当前页可点选的文字片段 [(rect, text, font, size)]，按页缓存。"""
