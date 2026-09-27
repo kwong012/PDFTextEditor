@@ -495,7 +495,8 @@ class PdfEditorApp(tk.Tk):
         pane1 = ttk.Frame(self.right_paned)
         self._pane_edit = pane1
         self._build_edit_form(pane1)
-        self.right_paned.add(pane1, stretch="never", minsize=210, height=380)
+        # 初始高度交给 _apply_minsizes 按表单自然高度定，避免下方留死区
+        self.right_paned.add(pane1, stretch="never", minsize=210)
 
         pane2 = ttk.Frame(self.right_paned)
         self._build_rules_pane(pane2)
@@ -625,6 +626,8 @@ class PdfEditorApp(tk.Tk):
                 if avail and form_h + 110 > avail:
                     form_h = max(150, avail - 110)
                 self.right_paned.paneconfigure(panes[0], minsize=form_h)
+                # 把分隔条直接落到表单自然底边（只设 minsize 不会收回被撑开的高度）
+                self.right_paned.sash_place(0, 0, form_h)
             except tk.TclError:
                 pass
 
