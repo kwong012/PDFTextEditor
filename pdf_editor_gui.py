@@ -50,8 +50,8 @@ THEMES = {
         head="#d6d6d6",                       # 表头（比行底深一档，才像表头）
         sash="#c4c4c4",                       # 分隔条
         canvas="#e4e6e8",                     # 预览画布底色（页面四周）
-        accent="#0066cc", ok="#00aa66", warn="#cc6600", pill_fg="#FFD54A",
-        hint="#B8860B",                            # 阶段提示文字（黄色系，起提醒作用）
+        accent="#0066cc", ok="#00aa66", warn="#cc6600", pill_fg="#777777",
+        hint="#777777",                            # 提示文字：与日志「最近的消息」同一种灰
         primary="#0E6B4F", primary_fg="#ffffff",   # 主按钮：与图标同色（深绿）
         muted="#777777", mark="#e53935", disabled="#a0a0a0",
     ),
@@ -65,8 +65,8 @@ THEMES = {
         head="#454545",
         sash="#4a4a4a",
         canvas="#1c1c1c",
-        accent="#4fc3f7", ok="#4ade80", warn="#fbbf24", pill_fg="#FFD54A",
-        hint="#FFD54A",
+        accent="#4fc3f7", ok="#4ade80", warn="#fbbf24", pill_fg="#9a9a9a",
+        hint="#9a9a9a",
         primary="#0E6B4F", primary_fg="#ffffff",
         muted="#9a9a9a", mark="#ff5252", disabled="#6f6f6f",
     ),
