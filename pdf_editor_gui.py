@@ -40,6 +40,7 @@ THEMES = {
     "light": dict(
         label="浅色",
         bg="#f0f0f0", fg="#1a1a1a",           # 面板底色 / 文字
+        bar_bg="#e3e3e3",                     # 工具栏底色（与面板区分）
         field="#ffffff",                      # 输入框、列表底
         border="#c9c9c9", btn="#e8e8e8", btn_hover="#dcdcdc",
         sel_bg="#cfe4ff", sel_fg="#1a1a1a",   # 选中项
@@ -52,6 +53,7 @@ THEMES = {
     "dark": dict(
         label="深色",
         bg="#2b2b2b", fg="#e6e6e6",
+        bar_bg="#333333",
         field="#3a3a3a",
         border="#4d4d4d", btn="#3a3a3a", btn_hover="#4a4a4a",
         sel_bg="#3f5b78", sel_fg="#ffffff",
@@ -279,6 +281,19 @@ class PdfEditorApp(tk.Tk):
         st.map("TMenubutton", background=[("active", p["btn_hover"])],
                foreground=[("disabled", p["disabled"])])
 
+        # 工具栏专用样式：底色与面板区分，控件背景跟着走
+        st.configure("Toolbar.TFrame", background=p["bar_bg"])
+        st.configure("Toolbar.TLabel", background=p["bar_bg"], foreground=p["fg"])
+        st.configure("Toolbar.TCheckbutton", background=p["bar_bg"], foreground=p["fg"],
+                     focuscolor=p["bar_bg"])
+        st.map("Toolbar.TCheckbutton", background=[("active", p["bar_bg"])],
+               foreground=[("disabled", p["disabled"])])
+        st.configure("Toolbar.TMenubutton", background=p["btn"], foreground=p["fg"],
+                     arrowcolor=p["fg"], bordercolor=p["border"],
+                     lightcolor=p["btn"], darkcolor=p["btn"], padding=(8, 3))
+        st.map("Toolbar.TMenubutton", background=[("active", p["btn_hover"])],
+               foreground=[("disabled", p["disabled"])])
+
         for sty in ("TCheckbutton", "TRadiobutton"):
             st.configure(sty, background=p["bg"], foreground=p["fg"], focuscolor=p["bg"])
             st.map(sty, background=[("active", p["bg"])],
@@ -357,7 +372,7 @@ class PdfEditorApp(tk.Tk):
 
     def _build_more_menu(self, parent):
         """把不常用的功能收进工具栏右侧的「设置 ▾」下拉，避免窄窗口被挤掉。"""
-        self.mb_more = ttk.Menubutton(parent, text="设置 ▾")
+        self.mb_more = ttk.Menubutton(parent, text="设置 ▾", style="Toolbar.TMenubutton")
         menu = tk.Menu(self.mb_more, tearoff=0)
         # 只有浅/深两套，直接点一下切换（勾选状态 = 当前是否深色）
         self.v_dark = tk.BooleanVar(value=(self._theme == "dark"))
@@ -409,18 +424,21 @@ class PdfEditorApp(tk.Tk):
             pass
 
     def _build_ui(self):
-        bar = ttk.Frame(self, padding=4)
+        bar = ttk.Frame(self, padding=(6, 5), style="Toolbar.TFrame")
         bar.pack(side="top", fill="x")
+        ttk.Separator(self, orient="horizontal").pack(fill="x")     # 工具栏与内容的分界线
         ttk.Button(bar, text="打开 PDF", command=self.open_pdf).pack(side="left")
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Button(bar, text="◀", width=3, command=lambda: self.change_page(-1)).pack(side="left")
-        self.lbl_page = ttk.Label(bar, text="0/0", width=7, anchor="center")
+        self.lbl_page = ttk.Label(bar, text="0/0", width=7, anchor="center",
+                                  style="Toolbar.TLabel")
         self.lbl_page.pack(side="left")
         ttk.Button(bar, text="▶", width=3, command=lambda: self.change_page(1)).pack(side="left")
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Button(bar, text="自动标定加粗", command=self.auto_calibrate).pack(side="left")
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Checkbutton(bar, text="对比预览", variable=self.show_after,
+                        style="Toolbar.TCheckbutton",
                         command=self._on_toggle_after).pack(side="left")
         ttk.Button(bar, text="适应窗口", command=self.autofit).pack(side="left")
 
