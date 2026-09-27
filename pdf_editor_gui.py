@@ -745,6 +745,13 @@ class PdfEditorApp(tk.Tk):
     def _clear_log(self):
         self.log.delete("1.0", "end")
 
+    def _place_sash(self, h):
+        """把右栏分隔条放到指定高度（容错：极端尺寸下 Tk 可能拒绝）。"""
+        try:
+            self.right_paned.sash_place(0, 0, h)
+        except tk.TclError:
+            pass
+
     def _apply_minsizes(self):
         """按"完整显示所需的最小尺寸"设置 minsize，避免拖到遮挡/裁切。"""
         try:
@@ -771,9 +778,11 @@ class PdfEditorApp(tk.Tk):
                 avail = self.right_paned.winfo_height()
                 if avail and form_h + 110 > avail:
                     form_h = max(150, avail - 110)
-                self.right_paned.paneconfigure(panes[0], minsize=form_h)
-                # 把分隔条直接落到表单自然底边（只设 minsize 不会收回被撑开的高度）
+                self.right_paned.paneconfigure(panes[0], minsize=form_h, height=form_h)
+                # 分隔条落到表单自然底边：立刻做一次，并在 idle 里再补一次
+                # （几何管理器可能在这一帧之后才应用 grid()/grid_remove() 的变化）
                 self.right_paned.sash_place(0, 0, form_h)
+                self.after_idle(lambda h=form_h: self._place_sash(h))
             except tk.TclError:
                 pass
 
