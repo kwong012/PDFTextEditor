@@ -598,19 +598,31 @@ def iter_spans(doc, page_no=None):
 def collect_targets(doc, repls, cfg=None):
     """按规则匹配片段，返回 [(page, bbox, origins, rule, span)]。
 
-    rule["scope"]=="single" 时用 rule["page"] + rule["bbox"] 精确定位单处。
+    scope=="single"/"range" 且带 bbox 时：**按 页码 + 位置 定位，不再要求文字相等**
+    —— 文字层抽出来可能是乱码（Type3 / 子集字体缺 ToUnicode），也可能被用户手改过，
+    位置才是可靠的定位依据。没带 bbox 时才退回"按页 + 文字相等"。
+    scope=="all"（默认）：按文字相等匹配，全文生效。
     """
     cfg = cfg or {}
     found = []
     for pno, page, span, text in iter_spans(doc):
         bbox = fitz.Rect(span["bbox"])
         for rule in repls:
-            if text != rule.get("old"):
-                continue
-            if rule.get("scope", "all") == "single":
+            scope = rule.get("scope", "all")
+            rbox = rule.get("bbox")
+            if scope in ("single", "range") and rbox:
                 if rule.get("page") is not None and int(rule["page"]) != pno:
                     continue
-                if rule.get("bbox") and not _bbox_close(bbox, rule["bbox"]):
+                if scope == "single":
+                    if not _bbox_close(bbox, rbox):
+                        continue
+                elif not bbox.intersects(fitz.Rect(rbox)):
+                    continue
+            else:
+                if text != rule.get("old"):
+                    continue
+                if scope == "single" and rule.get("page") is not None \
+                        and int(rule["page"]) != pno:
                     continue
             origins = [tuple(c["origin"]) for c in span["chars"]]
             found.append((page, bbox, origins, rule, span))

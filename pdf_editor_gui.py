@@ -645,10 +645,12 @@ class PdfEditorApp(tk.Tk):
         edit = ttk.LabelFrame(parent, text="选中片段", padding=8)
         edit.pack(fill="x")
 
-        ttk.Label(edit, text="原文字").grid(row=0, column=0, sticky="w", pady=5)
+        ttk.Label(edit, text="原文（可改）").grid(row=0, column=0, sticky="w", pady=5)
+        # 可手改：文字层抽错了（Type3 / 子集字体缺 ToUnicode 时常见乱码）由用户校正。
+        # 位置不依赖这里的文字：scope=single/range 都是按 页码 + bbox 定位的。
         self.e_old = ttk.Entry(edit, width=30)
-        self.e_old.state(["readonly"])          # 只读：浅底、不可手改
         self.e_old.grid(row=0, column=1, columnspan=2, sticky="we", pady=5)
+        self.e_old.bind("<Return>", lambda e: self.add_rule())
 
         ttk.Label(edit, text="替换", font=UI_FONT_BOLD).grid(row=1, column=0, sticky="w", pady=5)
         self.e_new = ttk.Entry(edit, width=30)
@@ -779,12 +781,10 @@ class PdfEditorApp(tk.Tk):
         self._on_draft_change()
 
     def _set_e_old(self, text):
-        """「原文字」是只读框：程序写入时临时解除只读（readonly 会忽略 insert）。"""
-        self.e_old.state(["!readonly"])
+        """写入「原文」。选片段时由程序填，用户也可以直接改成正确文字。"""
         self.e_old.delete(0, "end")
         if text:
             self.e_old.insert(0, text)
-        self.e_old.state(["readonly"])
 
     def _build_rules_pane(self, parent):
         self.rules_frame = ttk.LabelFrame(parent, text="修改清单", padding=8)
