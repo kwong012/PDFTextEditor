@@ -443,6 +443,7 @@ class PdfEditorApp(tk.Tk):
                              command=self._on_toggle_dark)
         menu.add_separator()
         menu.add_command(label="自动标定描边", command=self.auto_calibrate)
+        menu.add_command(label="打开字体文件夹", command=self._open_font_folder)
         menu.add_separator()
         menu.add_command(label="导入 config…", command=self.import_config)
         menu.add_command(label="导出 config…", command=self.export_config)
@@ -670,14 +671,15 @@ class PdfEditorApp(tk.Tk):
         self.e_size.pack(side="right", padx=(4, 0))
         ttk.Label(fontbox, text="字号").pack(side="right")
 
-        # 识别结果显示：让"软件认到了什么"一眼可见；认不出来会明确提示并指向字体文件夹
-        inf = ttk.Frame(edit)
-        inf.grid(row=3, column=0, columnspan=3, sticky="we", pady=(0, 2))
-        self.lbl_fontinfo = ttk.Label(inf, text="", style="Muted.TLabel",
-                                      wraplength=250, justify="left")
-        self.lbl_fontinfo.pack(side="left", anchor="w", fill="x", expand=True)
-        ttk.Button(inf, text="字体文件夹", style="Ghost.TButton",
-                   command=self._open_font_folder).pack(side="right", padx=(4, 0))
+        # 识别结果：平时只有一行小字；缺字体时才多出一个"占满整行"的字体文件夹按钮
+        self.inf = ttk.Frame(edit)
+        self.inf.grid(row=3, column=0, columnspan=3, sticky="we", pady=(0, 2))
+        self.lbl_fontinfo = ttk.Label(self.inf, text="", style="Muted.TLabel",
+                                      wraplength=300, justify="left")
+        self.lbl_fontinfo.pack(fill="x")
+        self.btn_fontdir = ttk.Button(self.inf, text="字体文件夹（把字体放这里）",
+                                      command=self._open_font_folder)
+        self.inf.grid_remove()               # 没内容时整行不占位置
 
         ttk.Label(edit, text="颜色").grid(row=4, column=0, sticky="w", pady=5)
         cf = ttk.Frame(edit)
@@ -1002,28 +1004,40 @@ class PdfEditorApp(tk.Tk):
         self._log(f"已用 {self._font_info['family']} 代替缺失字体 {info.get('raw')}")
         self._on_draft_change()
 
+    def _set_font_row(self, text, color=None, show_button=False):
+        """「识别结果」这一行：没内容就整行收起；缺字体时才显示占满整行的按钮。"""
+        if not text:
+            self.btn_fontdir.pack_forget()
+            self.inf.grid_remove()
+            return
+        self.lbl_fontinfo.configure(text=text, foreground=color or self._pal["muted"])
+        self.inf.grid()
+        if show_button:
+            self.btn_fontdir.pack(fill="x", pady=(4, 0))       # 整行占满
+        else:
+            self.btn_fontdir.pack_forget()
+        self.update_idletasks()
+        self._apply_minsizes()               # 表单高度变了，分隔条要重新贴
+
     def _show_font_info(self, info, size):
-        """把"识别到了什么字体/字号"写在界面上；缺字体就明确提示（并已弹浮窗）。"""
+        """把"识别到了什么字体/字号"写在界面上；缺字体就明确提示 + 给出字体文件夹入口。"""
         src = (info or {}).get("source")
         if src == "missing":
-            txt = (f"⚠ 缺少字体 {info.get('raw')}：请按浮窗提示安装，"
-                   f"或点浮窗里的「先用 … 代替」")
-            color = self._pal["warn"]
-        else:
-            how = {"exact": "精确匹配", "family": "族名匹配", "substitute": "替身",
-                   "alias": "别名匹配", "manual": "手动选择",
-                   "substitute-used": "你选择的代替"}.get(src, "")
-            txt = (f"已识别：{info.get('family')}"
-                   + (f"（{how}）" if how else "")
-                   + f" · {fmt_num(size)}pt"
-                   + (" · 粗体" if info.get("bold") else "")
-                   + (" · 斜体" if info.get("italic") else "")
-                   + (f" · 原文体 {info.get('raw')}" if src == "substitute-used" else ""))
-            color = self._pal["muted"]
-        try:
-            self.lbl_fontinfo.configure(text=txt, foreground=color)
-        except tk.TclError:
-            pass
+            self._set_font_row(
+                f"⚠ 缺少字体 {info.get('raw')}：把字体文件放进下面的文件夹，"
+                f"或点浮窗里的「先用 … 代替」",
+                self._pal["warn"], show_button=True)
+            return
+        how = {"exact": "精确匹配", "family": "族名匹配", "substitute": "替身",
+               "alias": "别名匹配", "manual": "手动选择",
+               "substitute-used": "你选择的代替"}.get(src, "")
+        txt = (f"已识别：{info.get('family')}"
+               + (f"（{how}）" if how else "")
+               + f" · {fmt_num(size)}pt"
+               + (" · 粗体" if info.get("bold") else "")
+               + (" · 斜体" if info.get("italic") else "")
+               + (f" · 原文体 {info.get('raw')}" if src == "substitute-used" else ""))
+        self._set_font_row(txt, self._pal["muted"], show_button=False)
 
     def _browse_font(self):
         """选择一个自定义字体文件（.ttf/.ttc/.otf），追加进下拉列表。"""
@@ -1156,6 +1170,7 @@ class PdfEditorApp(tk.Tk):
         self._span_cache.clear()
         self._tiles.clear()
         self._sel_bbox = None
+        self._set_font_row("")               # 换文档了：识别行收起
         self._spans_of_page(self.page_no)      # 预热当前页片段缓存
         self._refresh_rules()
         self.title(f"{APP_TITLE} — {os.path.basename(path)}")
@@ -1631,6 +1646,7 @@ class PdfEditorApp(tk.Tk):
         self._update_add_state()
         self._update_hint()
         self._update_color_widgets()
+        self._set_font_row("")               # 没有选中片段了：识别行收起
         self._schedule_draft_preview()      # 草稿没了：预览回到「只按清单」
 
     # ================= 规则 =================
