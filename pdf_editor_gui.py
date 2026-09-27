@@ -1882,6 +1882,13 @@ class PdfEditorApp(tk.Tk):
         if not rule["new"]:
             messagebox.showwarning(APP_TITLE, '请填写"替换"内容.')
             return
+        if rule.get("scope") == "range" and not rule.get("bbox"):
+            # 框选的范围没了（典型：框选后翻页/换页，选区被清掉但表单还留着）
+            messagebox.showwarning(
+                APP_TITLE,
+                "框选的范围已经失效（比如翻过页）。\n\n"
+                "请在左侧预览里重新框选一次，或把「范围」改成「所有相同文本」。")
+            return
         if not rule["font"]:
             raw = (self._font_info or {}).get("raw") or "未知"
             messagebox.showwarning(

@@ -621,18 +621,23 @@ def collect_targets(doc, repls, cfg=None):
         for rule in repls:
             scope = rule.get("scope", "all")
             rbox = rule.get("bbox")
-            if scope in ("single", "range") and rbox:
+            if scope == "range":
+                # 框选规则**必须**带选区（bbox）和页码：缺一个就什么都不匹配。
+                # 以前缺 bbox 会掉进下面"按文字相等"的分支 —— 于是框选规则退化成
+                # 全文替换，还会被 _merge_ranges 跨页并成一条（实测能删掉整页文字）。
+                if not rbox or int(rule.get("page", -1)) != pno:
+                    continue
+                if not bbox.intersects(fitz.Rect(rbox)):
+                    continue
+            elif scope == "single" and rbox:
                 if rule.get("page") is not None and int(rule["page"]) != pno:
                     continue
-                if scope == "single":
-                    if not _bbox_close(bbox, rbox):
-                        continue
-                elif not bbox.intersects(fitz.Rect(rbox)):
+                if not _bbox_close(bbox, rbox):
                     continue
             else:
                 if text != rule.get("old"):
                     continue
-                if scope == "single" and rule.get("page") is not None \
+                if scope in ("single", "range") and rule.get("page") is not None \
                         and int(rule["page"]) != pno:
                     continue
             origins = [tuple(c["origin"]) for c in span["chars"]]
@@ -646,11 +651,14 @@ def _merge_ranges(found):
     框选一段话在这类 PDF 里会命中很多片段（Type3 常常一个字一个片段），
     合并后 bbox 取并集、逐字基点按阅读顺序拼接 —— 这样 apply_replacements /
     compute_positions 一行都不用改，就能整段重排（同一行内）。
+
+    合并键是「页码 + 规则」：**跨页绝不合并**（不同页的坐标毫无可比性，
+    并成一条会得到一个横跨多页的乱 bbox，一删就是一大片）。
     """
     merged = {}
     for page, bbox, origins, rule, _span in found:
         if rule.get("scope") == "range":
-            key = id(rule)
+            key = (page.number, id(rule))
             if key not in merged:
                 merged[key] = [page, fitz.Rect(bbox), list(origins), rule, None]
             else:
@@ -661,7 +669,7 @@ def _merge_ranges(found):
     out, done = [], set()
     for page, bbox, origins, rule, span in found:
         if rule.get("scope") == "range":
-            key = id(rule)
+            key = (page.number, id(rule))
             if key in done:
                 continue
             done.add(key)
