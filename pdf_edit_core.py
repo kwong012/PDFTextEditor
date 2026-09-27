@@ -11,7 +11,9 @@ pdf_edit_core —— PDF 原位文字替换核心逻辑（CLI 与 GUI 共用）
 """
 from __future__ import annotations
 
+import json
 import os
+import re
 import sys
 
 import fitz
@@ -138,8 +140,8 @@ def _norm_font_name(s: str | None) -> str:
 _FONT_ALIASES_NORM = None
 
 
-def find_system_font(pdf_font_name: str | None) -> str:
-    """据 PDF 内字体名猜系统字体文件（按最长匹配键优先），找不到退回宋体。"""
+def _alias_file(pdf_font_name: str | None) -> str | None:
+    """按手工映射表找系统字体文件（按最长匹配键优先）；没有匹配返回 None。"""
     global _FONT_ALIASES_NORM
     if _FONT_ALIASES_NORM is None:
         _FONT_ALIASES_NORM = {_norm_font_name(k): v for k, v in FONT_ALIASES.items()}
@@ -150,21 +152,373 @@ def find_system_font(pdf_font_name: str | None) -> str:
             best_key = key
     if best_key:
         return _FONT_ALIASES_NORM[best_key]
-    return DEFAULT_FONT
+    return None
 
 
-def ensure_ttf(font_path: str, cache_dir: str | None = None) -> str:
-    """PyMuPDF 对 .ttc 支持不稳；若为 ttc，用 fontTools 取第 0 号字面另存 .ttf。"""
-    if not font_path or not font_path.lower().endswith(".ttc"):
+def find_system_font(pdf_font_name: str | None) -> str:
+    """据 PDF 内字体名猜系统字体文件（按最长匹配键优先），找不到退回宋体。"""
+    return _alias_file(pdf_font_name) or DEFAULT_FONT
+
+
+def ensure_ttf(font_path: str, face: int = 0, cache_dir: str | None = None) -> str:
+    """PyMuPDF 对 .ttc/.otc 支持不稳；若为集合字体，用 fontTools 取第 face 号字面另存 .ttf。"""
+    if not font_path:
+        return font_path
+    if os.path.splitext(font_path)[1].lower() not in (".ttc", ".otc"):
         return font_path
     if not os.path.exists(font_path):
         return font_path
     cache_dir = cache_dir or user_cache_dir()
-    out = os.path.join(cache_dir, os.path.basename(font_path) + ".0.ttf")
+    face = int(face or 0)
+    out = os.path.join(cache_dir, f"{os.path.basename(font_path)}.{face}.ttf")
     if not os.path.exists(out) or os.path.getmtime(out) < os.path.getmtime(font_path):
         from fontTools.ttLib import TTCollection
         os.makedirs(cache_dir, exist_ok=True)
-        TTCollection(font_path).fonts[0].save(out)
+        faces = TTCollection(font_path).fonts
+        if not faces:
+            return font_path
+        faces[min(face, len(faces) - 1)].save(out)
+    return out
+
+
+# ==================== 系统字体索引（自动定位 Windows 字体文件夹） ====================
+# 目标：PDF 里写的是字体名（SimSun / MicrosoftYaHei-Bold / Heiti ...），
+# 这里把字体目录整个扫一遍，读出每个字体文件（含 .ttc 的每个字面）的真实族名/样式名，
+# 建一个"名字 -> 文件 + 字面号"的索引，之后按名字精确定位，而不是靠一张手工映射表。
+FONT_EXTS = (".ttf", ".ttc", ".otf", ".otc")
+
+
+def font_dirs() -> list:
+    """要扫描的字体目录：系统字体 + 用户安装的字体 + 程序自己的 fonts（放下载的字体）。"""
+    out = []
+    win = os.environ.get("WINDIR") or r"C:\Windows"
+    out.append(os.path.join(win, "Fonts"))
+    local = os.environ.get("LOCALAPPDATA")
+    if local:
+        out.append(os.path.join(local, "Microsoft", "Windows", "Fonts"))
+    out.append(user_font_dir())
+    return [d for d in out if os.path.isdir(d)]
+
+
+def user_font_dir(create: bool = True) -> str:
+    """用户可以往里放字体文件的文件夹（识别不到时提示放这儿）。"""
+    d = os.path.join(user_cache_dir(), "fonts")
+    if create:
+        os.makedirs(d, exist_ok=True)
+    return d
+
+
+def _name_rec(nm, nid: int) -> str:
+    """取 name 表里的某条记录（优先 Windows/Unicode，其次 Mac）。"""
+    try:
+        rec = nm.getName(nid, 3, 1) or nm.getName(nid, 1, 0)
+        return rec.toUnicode().strip() if rec else ""
+    except Exception:
+        return ""
+
+
+def _face_info(font, path: str, face: int) -> dict:
+    nm = font["name"]
+    fam = _name_rec(nm, 16) or _name_rec(nm, 1)
+    sub = _name_rec(nm, 17) or _name_rec(nm, 2)
+    full = _name_rec(nm, 4)
+    ps = _name_rec(nm, 6)
+    bold = italic = False
+    try:
+        fs = font["OS/2"].fsSelection
+        bold, italic = bool(fs & 0x20), bool(fs & 0x01)
+    except Exception:
+        pass
+    try:
+        ms = font["head"].macStyle
+        bold, italic = bold or bool(ms & 0x01), italic or bool(ms & 0x02)
+    except Exception:
+        pass
+    probe = f"{sub} {full} {ps}".lower()
+    if not bold:
+        bold = any(k in probe for k in ("bold", "heavy", "semibold", "demibold", "black"))
+    if not italic:
+        italic = any(k in probe for k in ("italic", "oblique", "slanted"))
+    return {"path": path, "face": face, "family": fam or ps or full,
+            "sub": sub, "full": full or fam, "ps": ps, "bold": bold, "italic": italic}
+
+
+def _scan_font_file(path: str) -> list:
+    out = []
+    try:
+        from fontTools.ttLib import TTCollection
+        if os.path.splitext(path)[1].lower() in (".ttc", ".otc"):
+            col = TTCollection(path, lazy=True)
+            for i, f in enumerate(col.fonts):
+                try:
+                    out.append(_face_info(f, path, i))
+                except Exception:
+                    continue
+            col.close()
+        else:
+            from fontTools.ttLib import TTFont
+            f = TTFont(path, lazy=True, fontNumber=0)
+            out.append(_face_info(f, path, 0))
+            f.close()
+    except Exception:
+        pass
+    return out
+
+
+def _font_sig() -> str:
+    """字体目录签名（文件名+大小+时间），变了才重建索引。"""
+    items = []
+    for d in font_dirs():
+        try:
+            for fn in sorted(os.listdir(d)):
+                if os.path.splitext(fn)[1].lower() not in FONT_EXTS:
+                    continue
+                p = os.path.join(d, fn)
+                try:
+                    st = os.stat(p)
+                    items.append(f"{p}|{int(st.st_size)}|{int(st.st_mtime)}")
+                except OSError:
+                    continue
+        except OSError:
+            continue
+    return str(hash(";".join(items)))
+
+
+_INDEX_CACHE = {"sig": None, "fonts": None, "maps": None}
+
+
+def font_index(force: bool = False) -> list:
+    """全部字体的索引（带 JSON 缓存 + 目录签名校验）。"""
+    if not force and _INDEX_CACHE["fonts"] is not None:
+        return _INDEX_CACHE["fonts"]
+    sig = _font_sig()
+    cache = os.path.join(user_cache_dir(), "font_index.json")
+    fonts = None
+    if not force and os.path.exists(cache):
+        try:
+            with open(cache, encoding="utf-8") as fh:
+                data = json.load(fh)
+            if data.get("sig") == sig:
+                fonts = data.get("fonts") or []
+        except Exception:
+            fonts = None
+    if fonts is None:
+        fonts = []
+        for d in font_dirs():
+            try:
+                names = sorted(os.listdir(d))
+            except OSError:
+                continue
+            for fn in names:
+                if os.path.splitext(fn)[1].lower() not in FONT_EXTS:
+                    continue
+                fonts.extend(_scan_font_file(os.path.join(d, fn)))
+        try:
+            with open(cache, "w", encoding="utf-8") as fh:
+                json.dump({"sig": sig, "fonts": fonts}, fh, ensure_ascii=False)
+        except Exception:
+            pass
+    _INDEX_CACHE.update(sig=sig, fonts=fonts, maps=None)
+    return fonts
+
+
+_SUBSET_PREFIX = re.compile(r"^[A-Z]{6}\+")
+
+
+def _norm2(s: str) -> str:
+    """归一化字体名：小写、去掉空格与常见分隔符。"""
+    s = (s or "").lower()
+    for ch in (" ", "-", "_", ",", ".", "\t", "'", '"', "(", ")", "+"):
+        s = s.replace(ch, "")
+    return s
+
+
+def _style_of(name: str) -> tuple:
+    """从字体名里拆出 (去样式的名字, 粗体, 斜体)。"""
+    n = _norm2(name)
+    bold = italic = False
+    for kw in ("bolditalic", "boldoblique"):
+        if kw in n:
+            bold = italic = True
+            n = n.replace(kw, "")
+    for kw in ("semibold", "demibold", "bold", "heavy", "black", "extrabold"):
+        if kw in n:
+            bold = True
+            n = n.replace(kw, "")
+    for kw in ("italic", "oblique", "slanted"):
+        if kw in n:
+            italic = True
+            n = n.replace(kw, "")
+    for kw, b, i in (("bold", True, False), ("italic", False, True)):
+        pass
+    return n, bold, italic
+
+
+def _font_maps():
+    if _INDEX_CACHE["maps"] is None:
+        by_ps, by_full, by_fam = {}, {}, {}
+        for f in font_index():
+            for key, mp in ((_norm2(f.get("ps")), by_ps),
+                            (_norm2(f.get("full")), by_full),
+                            (_norm2(f.get("family")), by_fam)):
+                if key:
+                    mp.setdefault(key, []).append(f)
+        _INDEX_CACHE["maps"] = (by_ps, by_full, by_fam)
+    return _INDEX_CACHE["maps"]
+
+
+def _pick(cands: list, bold: bool, italic: bool):
+    """从同名候选里挑最匹配粗/斜的那一个。"""
+    if not cands:
+        return None
+    best, best_score = None, -9
+    for f in cands:
+        score = 0
+        if bool(f.get("bold")) == bool(bold):
+            score += 2
+        else:
+            score -= 1
+        if bool(f.get("italic")) == bool(italic):
+            score += 1
+        if score > best_score:
+            best, best_score = f, score
+    return best
+
+
+# 换平台就要找"替身"的常见字体名（macOS / Adobe 名）-> 系统里更可能存在的族名
+FONT_SUBSTITUTES = {
+    "heiti": "simhei", "heitisc": "simhei", "stheiti": "simhei", "heitilight": "simhei",
+    "pingfangsc": "microsoftyahei", "pingfangtc": "microsoftjhenghei",
+    "pingfanghk": "microsoftjhenghei",
+    "songtisc": "simsun", "songtitc": "simsun", "stsong": "stsong",
+    "stsongsc": "stsong", "stsongtc": "stsong", "kaitisc": "kaiti",
+    "yuanti": "youyuan", "yuanticsc": "youyuan",
+    "hiraginosansgb": "microsoftyahei", "notosanscjksc": "microsoftyahei",
+    "notosanssc": "microsoftyahei", "sourcehansanssc": "microsoftyahei",
+    "sourcehansanscn": "microsoftyahei", "notoserifcjksc": "simsun",
+    "helvetica": "arial", "helveticaneue": "arial", "arialmt": "arial",
+    "timesnewromanpsmt": "timesnewroman", "timesroman": "timesnewroman",
+    "couriernewpsmt": "couriernew", "couriermt": "couriernew",
+    "zapfdingbats": "wingdings", "symbol": "arial", "calibri": "calibri",
+}
+
+
+def _substitute_name(name: str) -> str | None:
+    """按替身表（最长键优先）给出一个更可能存在的族名；没有则 None。"""
+    n = _norm2(name)
+    best = None
+    for key in FONT_SUBSTITUTES:
+        if key and key in n and (best is None or len(key) > len(best)):
+            best = key
+    return FONT_SUBSTITUTES[best] if best else None
+
+
+def _guess_substitute(raw: str) -> str:
+    """字体缺失时，按名字猜一个"看起来最接近"的族名（只是建议，界面会问用户）。"""
+    n = _norm2(raw)
+    for key, fam in (("yahei", "microsoftyahei"), ("雅黑", "microsoftyahei"),
+                     ("hei", "simhei"), ("黑", "simhei"), ("sans", "simhei"),
+                     ("gothic", "simhei"), ("fang", "fangsong"), ("仿", "fangsong"),
+                     ("kai", "kaiti"), ("楷", "kaiti"),
+                     ("song", "simsun"), ("宋", "simsun"), ("ming", "simsun"),
+                     ("mincho", "simsun"), ("serif", "simsun")):
+        if key in n:
+            return fam
+    return "simsun"
+
+
+def _lookup_index(name: str, bold: bool, italic: bool):
+    by_ps, by_full, by_fam = _font_maps()
+    pool = []
+    for mp, tag in ((by_ps, "exact"), (by_full, "exact"), (by_fam, "family")):
+        for f in mp.get(name, []):
+            pool.append((f, tag))
+    if not pool:
+        return None, ""
+    cand = _pick([f for f, _t in pool], bold, italic)
+    tags = [t for f, t in pool if f is cand]
+    return cand, ("exact" if "exact" in tags else "family")
+
+
+def resolve_font(pdf_name: str, bold: bool = False, italic: bool = False) -> dict:
+    """把 PDF 里的字体名解析成可用的系统字体文件。
+
+    顺序：系统字体索引精确匹配 -> 族名匹配 -> 平台替身表 -> 手工别名表。
+    都找不到时 source="missing"：不静默顶替，把 raw 字体名报给界面，由用户决定
+    （装字体 / 先用 suggest 里的替身）。
+    返回 {path, face, family, source, raw, suggest, note}。
+    """
+    raw = (pdf_name or "").strip()
+    clean = _SUBSET_PREFIX.sub("", raw)          # 去掉子集前缀 ABCDEF+
+    n, n_bold, n_italic = _style_of(clean)
+    bold = bool(bold or n_bold)
+    italic = bool(italic or n_italic)
+    if clean.lower().startswith("type3"):        # Type3：每个字是独立矢量程序，无从得知字体
+        n = ""
+
+    cand, src = None, ""
+    if n:
+        cand, src = _lookup_index(n, bold, italic)
+    if cand is None:
+        sub = _substitute_name(clean)            # 平台替身（Heiti->SimHei, Helvetica->Arial）
+        if sub:
+            cand, _tag = _lookup_index(sub, bold, italic)
+            if cand:
+                src = "substitute"
+    if cand is None:
+        alias = _alias_file(clean)               # 手工别名表（中文名覆盖最稳）
+        if alias:
+            hit = None
+            for f in font_index():
+                if os.path.normcase(f["path"]) == os.path.normcase(alias):
+                    hit = f
+                    break
+            if hit is not None:
+                cand, src = _pick([hit], bold, italic), "alias"
+            elif os.path.exists(alias):
+                cand = {"path": alias, "face": 0, "family": os.path.basename(alias),
+                        "bold": bold, "italic": italic}
+                src = "alias"
+
+    if cand is None:
+        # 没找到：给一个建议替身，但标记为 missing —— 界面必须让用户明确选择
+        sug, _tag = _lookup_index(_guess_substitute(clean or raw), bold, italic)
+        if sug is None:
+            sug = {"path": DEFAULT_FONT, "face": 0, "family": "宋体 SimSun",
+                   "bold": bold, "italic": italic}
+        return {"path": sug["path"], "face": int(sug.get("face") or 0),
+                "family": sug.get("family") or os.path.basename(sug["path"]),
+                "bold": bool(sug.get("bold")), "italic": bool(sug.get("italic")),
+                "source": "missing", "raw": raw or "未知",
+                "suggest": {"path": sug["path"], "face": int(sug.get("face") or 0),
+                            "family": sug.get("family") or os.path.basename(sug["path"])},
+                "note": f"缺少字体：{raw or '未知'}"}
+    return {"path": cand["path"], "face": int(cand.get("face") or 0),
+            "family": cand.get("family") or os.path.basename(cand["path"]),
+            "bold": bool(cand.get("bold")), "italic": bool(cand.get("italic")),
+            "source": src, "raw": raw, "suggest": None, "note": ""}
+
+
+def all_font_choices() -> list:
+    """下拉列表用：(文件路径, 显示名, 字面号)。内置候排放前面，其后按名字排序。"""
+    out, seen = [], set()
+
+    def add(path, label, face=0):
+        key = (os.path.normcase(path), int(face))
+        if key in seen:
+            return
+        seen.add(key)
+        out.append((path, label, int(face)))
+
+    for p, label in list_available_fonts():
+        add(p, label, 0)
+    for f in sorted(font_index(), key=lambda x: (_norm2(x.get("family")), x.get("face", 0))):
+        fam = f.get("family") or os.path.basename(f["path"])
+        sub = f.get("sub") or ""
+        label = fam + (f" · {sub}" if sub and _norm2(sub) not in ("regular", _norm2(fam)) else "")
+        if (f.get("face") or 0) > 0:
+            label += f" #{f['face']}"
+        add(f["path"], label, f.get("face") or 0)
     return out
 
 
@@ -173,6 +527,7 @@ def resolve_settings(rule: dict, cfg: dict) -> dict:
     size = float(rule.get("font_size", cfg.get("font_size", 10)))
     return {
         "font_file": rule.get("font") or cfg.get("font") or DEFAULT_FONT,
+        "font_face": int(rule.get("font_face") or cfg.get("font_face") or 0),
         "font_name": rule.get("font_name") or cfg.get("font_name", "simsun"),
         "font_size": size,
         "bold_stroke": float(rule.get("bold_stroke", cfg.get("bold_stroke", 0.03))),
@@ -271,7 +626,8 @@ def apply_replacements(doc, cfg, targets=None):
     # 2) 逐字重绘
     cache = {}
     for page, _bbox, origins, rule, st in plans:
-        ttf = cache.setdefault(st["font_file"], ensure_ttf(st["font_file"]))
+        key = (st["font_file"], st["font_face"])
+        ttf = cache.setdefault(key, ensure_ttf(st["font_file"], st["font_face"]))
         pos = compute_positions(origins, rule["new"], rule, st["font_size"])
         for ch, (x, y) in zip(rule["new"], pos):
             page.insert_text(

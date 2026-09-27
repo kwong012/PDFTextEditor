@@ -260,7 +260,10 @@ class PdfEditorApp(tk.Tk):
         self._sel_bbox = None
         self._updating = False
         self.show_after = tk.BooleanVar(value=False)
-        self.font_choices = core.list_available_fonts()   # 本机可用字体（覆盖面广）
+        self.font_choices = core.all_font_choices()   # 系统字体索引 + 内置候选（自动定位）
+        self._font_info = None                        # 当前片段识别出的字体信息
+        self._font_toast = None                       # 「缺少字体」浮窗
+        self._sel_size = 10.0                         # 当前选中片段的字号
 
         # 主题：默认浅色；上次的选择会记住（settings.json 与字体缓存同目录）
         saved_theme = load_settings().get("theme")
@@ -630,7 +633,7 @@ class PdfEditorApp(tk.Tk):
         # 日志：整窗底部通栏，可上下拖高度
         logpane = ttk.Frame(content, padding=(8, 4))
         self._build_log_pane(logpane)
-        content.add(logpane, stretch="never", minsize=90, height=150)
+        content.add(logpane, stretch="never", minsize=185, height=185)
 
         self._style_widgets()
 
@@ -653,7 +656,7 @@ class PdfEditorApp(tk.Tk):
         fontbox = ttk.Frame(edit)
         fontbox.grid(row=2, column=1, columnspan=2, sticky="we", pady=4)
         self.cb_font = ttk.Combobox(fontbox, width=18, state="readonly",
-                                    values=[label for _, label in self.font_choices])
+                                    values=[label for _p, label, _f in self.font_choices])
         self.cb_font.current(0)
         self.cb_font.bind("<<ComboboxSelected>>", self._on_draft_change)
         self.cb_font.pack(side="left")
@@ -664,23 +667,32 @@ class PdfEditorApp(tk.Tk):
         self.e_size.pack(side="right", padx=(4, 0))
         ttk.Label(fontbox, text="字号").pack(side="right")
 
-        ttk.Label(edit, text="对齐").grid(row=3, column=0, sticky="w", pady=5)
+        # 识别结果显示：让"软件认到了什么"一眼可见；认不出来会明确提示并指向字体文件夹
+        inf = ttk.Frame(edit)
+        inf.grid(row=3, column=0, columnspan=3, sticky="we", pady=(0, 2))
+        self.lbl_fontinfo = ttk.Label(inf, text="", style="Muted.TLabel",
+                                      wraplength=250, justify="left")
+        self.lbl_fontinfo.pack(side="left", anchor="w", fill="x", expand=True)
+        ttk.Button(inf, text="字体文件夹", style="Ghost.TButton",
+                   command=self._open_font_folder).pack(side="right", padx=(4, 0))
+
+        ttk.Label(edit, text="对齐").grid(row=4, column=0, sticky="w", pady=5)
         self.v_align = tk.StringVar(value="match")
         self.cb_align = ttk.Combobox(edit, width=14, state="readonly",
                                      values=["保持原位", "左对齐留白"])
         self.cb_align.current(0)
-        self.cb_align.grid(row=3, column=1, sticky="w", pady=5)
+        self.cb_align.grid(row=4, column=1, sticky="w", pady=5)
         self.cb_align.bind("<<ComboboxSelected>>", self._on_align_change)
 
         # ── 高级项：默认收起，点一行小字展开 ──
         self._adv_open = False
         self.lbl_adv = ttk.Label(edit, text=f"▸ {ADV_LABEL}",
                                  style="Muted.TLabel", cursor="hand2")
-        self.lbl_adv.grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
+        self.lbl_adv.grid(row=5, column=0, columnspan=3, sticky="w", pady=(8, 0))
         self.lbl_adv.bind("<Button-1>", self._toggle_advanced)
 
         self.adv = ttk.Frame(edit)
-        self.adv.grid(row=5, column=0, columnspan=3, sticky="we")
+        self.adv.grid(row=6, column=0, columnspan=3, sticky="we")
         ttk.Label(self.adv, text="左边框位置").grid(row=0, column=0, sticky="w", pady=4)
         af2 = ttk.Frame(self.adv)
         af2.grid(row=0, column=1, sticky="w", pady=4)
@@ -719,7 +731,7 @@ class PdfEditorApp(tk.Tk):
         self.adv.grid_remove()               # 默认收起
 
         btns = ttk.Frame(edit)
-        btns.grid(row=6, column=0, columnspan=3, sticky="we", pady=(10, 0))
+        btns.grid(row=7, column=0, columnspan=3, sticky="we", pady=(10, 0))
         btns.columnconfigure(0, weight=1)       # 主按钮占满，次按钮靠右
         self.btn_add = ttk.Button(btns, text="添加到清单", style="Accent.TButton",
                                   command=self.add_rule)
@@ -784,7 +796,7 @@ class PdfEditorApp(tk.Tk):
         body = ttk.Frame(logf)
         body.pack(fill="both", expand=True, pady=(4, 0))
         sb = ttk.Scrollbar(body, orient="vertical")
-        self.log = tk.Text(body, height=5, width=28, wrap="word", yscrollcommand=sb.set)
+        self.log = tk.Text(body, height=7, width=28, wrap="word", yscrollcommand=sb.set)
         sb.configure(command=self.log.yview)
         sb.pack(side="right", fill="y")
         self.log.pack(side="left", fill="both", expand=True)
@@ -877,9 +889,123 @@ class PdfEditorApp(tk.Tk):
             msg = HINT_ADD
         self._set_hint(msg)
 
-    def _selected_font_path(self):
+    def _selected_font(self):
+        """下拉框当前选中的 (字体文件, 字面号)；显示"需要安装"提示时返回 (None, 0)。"""
         idx = self.cb_font.current()
-        return self.font_choices[idx if idx >= 0 else 0][0]
+        if idx < 0 or idx >= len(self.font_choices):
+            return None, 0
+        p, _label, face = self.font_choices[idx]
+        return p, int(face)
+
+    def _selected_font_path(self):
+        return self._selected_font()[0]
+
+    def _select_font(self, path, face=0):
+        """把下拉框定位到指定字体（列表里没有就补进去）。返回是否命中已有项。"""
+        want = (os.path.normcase(path), int(face))
+        for i, (p, _l, f) in enumerate(self.font_choices):
+            if (os.path.normcase(p), int(f)) == want:
+                self.cb_font.current(i)
+                return True
+        self.font_choices.append((path, f"自定义 {os.path.basename(path)}", int(face)))
+        self.cb_font.configure(values=[l for _p, l, _f in self.font_choices])
+        self.cb_font.current(len(self.font_choices) - 1)
+        return False
+
+    def _reload_font_choices(self):
+        """重新扫描字体目录并刷新下拉列表（尽量保持当前选择）。"""
+        cur = self._selected_font()
+        self.font_choices = core.all_font_choices()
+        self.cb_font.configure(values=[l for _p, l, _f in self.font_choices])
+        if cur[0] and not self._select_font(*cur):
+            self.cb_font.current(0)
+
+    def _open_font_folder(self):
+        """打开"放字体"的文件夹。
+
+        注意：不碰 Windows 字体文件夹（C:\\Windows\\Fonts 需要管理员权限，改它不合适），
+        字体放我们自己的目录就行，不用安装。
+        """
+        d = core.user_font_dir()
+        self._reload_font_choices()
+        self._log(f"字体文件夹: {d}（把字体放进去后，重新点选文字就会识别）")
+        try:
+            os.startfile(d)                     # noqa: S606  (Windows)
+        except Exception:
+            messagebox.showinfo(APP_TITLE, f"字体文件夹（把字体放这里，不用安装）：\n{d}")
+
+    def _show_missing_font_toast(self, info):
+        """缺字体：弹一个不阻塞的浮窗，说明"要装什么字体、放哪里"，并给"先用替身"的出口。"""
+        old = self._font_toast
+        if old is not None and old.winfo_exists():
+            old.destroy()
+        d = core.user_font_dir()
+        sug = info.get("suggest") or {}
+        sug_name = sug.get("family") or "宋体 SimSun"
+        t = tk.Toplevel(self)
+        self._font_toast = t
+        t.title("缺少字体")
+        t.transient(self)
+        t.attributes("-topmost", True)
+        t.resizable(False, False)
+        frm = ttk.Frame(t, padding=12)
+        frm.pack(fill="both", expand=True)
+        ttk.Label(frm, text=f"⚠ 缺少字体：{info.get('raw')}",
+                  font=UI_FONT_BOLD, foreground=self._pal["warn"]).pack(anchor="w")
+        ttk.Label(frm, justify="left", wraplength=380,
+                  text=("这一段用的字体系统里没有。直接替换会和原文长得不一样，所以先不动它。\n\n"
+                        "① 下载这个字体（.ttf / .otf），放进这个文件夹：\n"
+                        f"     {d}\n"
+                        "     （不用装进 Windows 字体文件夹 —— 那个需要管理员权限）\n\n"
+                        "② 放好之后回到窗口，重新点一下这段文字即可识别。"
+                        )).pack(anchor="w", pady=(8, 0))
+        btns = ttk.Frame(frm)
+        btns.pack(fill="x", pady=(10, 0))
+        ttk.Button(btns, text="打开字体文件夹", style="Accent.TButton",
+                   command=self._open_font_folder).pack(side="left")
+        ttk.Button(btns, text=f"先用「{sug_name}」代替", style="Ghost.TButton",
+                   command=lambda: self._use_substitute(info)).pack(side="left", padx=6)
+        ttk.Button(btns, text="知道了", style="Ghost.TButton",
+                   command=t.destroy).pack(side="right")
+        t.update_idletasks()
+        x = self.winfo_rootx() + self.winfo_width() - t.winfo_reqwidth() - 24
+        y = self.winfo_rooty() + 64
+        t.geometry(f"+{max(0, x)}+{max(0, y)}")
+        t.after(30000, lambda: t.destroy() if t.winfo_exists() else None)
+
+    def _use_substitute(self, info):
+        """用户明确选择"先用替身代替"（不会自动发生）。"""
+        sug = info.get("suggest") or {}
+        path = sug.get("path") or core.DEFAULT_FONT
+        self._select_font(path, sug.get("face", 0))
+        self._font_info = dict(info, source="substitute-used",
+                               family=sug.get("family") or os.path.basename(path))
+        self._show_font_info(self._font_info, self._sel_size)
+        self._log(f"已用 {self._font_info['family']} 代替缺失字体 {info.get('raw')}")
+        self._on_draft_change()
+
+    def _show_font_info(self, info, size):
+        """把"识别到了什么字体/字号"写在界面上；缺字体就明确提示（并已弹浮窗）。"""
+        src = (info or {}).get("source")
+        if src == "missing":
+            txt = (f"⚠ 缺少字体 {info.get('raw')}：请按浮窗提示安装，"
+                   f"或点浮窗里的「先用 … 代替」")
+            color = self._pal["warn"]
+        else:
+            how = {"exact": "精确匹配", "family": "族名匹配", "substitute": "替身",
+                   "alias": "别名匹配", "manual": "手动选择",
+                   "substitute-used": "你选择的代替"}.get(src, "")
+            txt = (f"已识别：{info.get('family')}"
+                   + (f"（{how}）" if how else "")
+                   + f" · {fmt_num(size)}pt"
+                   + (" · 粗体" if info.get("bold") else "")
+                   + (" · 斜体" if info.get("italic") else "")
+                   + (f" · 原文体 {info.get('raw')}" if src == "substitute-used" else ""))
+            color = self._pal["muted"]
+        try:
+            self.lbl_fontinfo.configure(text=txt, foreground=color)
+        except tk.TclError:
+            pass
 
     def _browse_font(self):
         """选择一个自定义字体文件（.ttf/.ttc/.otf），追加进下拉列表。"""
@@ -888,15 +1014,8 @@ class PdfEditorApp(tk.Tk):
             filetypes=[("字体文件", "*.ttf *.ttc *.otf"), ("所有文件", "*.*")])
         if not path:
             return
-        for i, (p, _l) in enumerate(self.font_choices):
-            if os.path.normcase(p) == os.path.normcase(path):
-                self.cb_font.current(i)
-                return
-        label = f"自定义 {os.path.basename(path)}"
-        self.font_choices.append((path, label))
-        self.cb_font.configure(values=[l for _, l in self.font_choices])
-        self.cb_font.current(len(self.font_choices) - 1)
-        self._log(f"已加入自定义字体: {path}")
+        if not self._select_font(path, 0):
+            self._log(f"已加入自定义字体: {path}")
         self._on_draft_change()
 
     def _gap_value(self):
@@ -972,17 +1091,30 @@ class PdfEditorApp(tk.Tk):
             self.lbl_page.config(text=f"{self.page_no + 1}/{self.orig.page_count}")
 
     # ================= 渲染（只画可见区域） =================
-    def _spans_of_page(self, pno):
-        """当前页可点选的文字片段 [(rect, text, font, size)]，按页缓存。"""
+    def _span_dicts(self, pno):
+        """当前页片段（带字体名/字号/粗斜/颜色），按页缓存。"""
         if pno not in self._span_cache:
             spans = []
             for _p, _page, span, text in core.iter_spans(self.orig, pno):
                 if not text.strip():
                     continue
-                spans.append((fitz.Rect(span["bbox"]), text,
-                              span.get("font", ""), span.get("size", 10)))
+                spans.append({"rect": fitz.Rect(span["bbox"]), "text": text,
+                              "font": span.get("font", ""), "size": span.get("size", 10),
+                              "flags": int(span.get("flags", 0)),
+                              "color": int(span.get("color", 0))})
             self._span_cache[pno] = spans
         return self._span_cache[pno]
+
+    def _spans_of_page(self, pno):
+        """当前页可点选的文字片段 [(rect, text, font, size)]，按页缓存。"""
+        return [(d["rect"], d["text"], d["font"], d["size"]) for d in self._span_dicts(pno)]
+
+    def _span_at(self, pt):
+        """点中的片段（含粗斜/颜色等完整信息）。"""
+        for d in self._span_dicts(self.page_no):
+            if d["rect"].contains(pt):
+                return d
+        return None
 
     def _set_scrollregion(self):
         if self.orig is None:
@@ -1291,24 +1423,24 @@ class PdfEditorApp(tk.Tk):
             return
         x = self.canvas.canvasx(event.x) / self.zoom
         y = self.canvas.canvasy(event.y) / self.zoom
-        pt = fitz.Point(x, y)
-        hit = None
-        for rect, text, font, size in self._spans_of_page(self.page_no):
-            if rect.contains(pt):
-                hit = (rect, text, font, size)
-                break
-        if not hit:
+        d = self._span_at(fitz.Point(x, y))
+        if not d:
             return
-        rect, text, font, size = hit
+        rect, text, font, size = d["rect"], d["text"], d["font"], d["size"]
         self._sel_bbox = rect
         self._set_e_old(text)
         self.e_size.delete(0, "end")
         self.e_size.insert(0, fmt_num(size))     # 保精度：10.45 就是 10.45，不取整
-        sysfont = core.find_system_font(font)
-        for i, (p, _l) in enumerate(self.font_choices):
-            if os.path.normcase(p) == os.path.normcase(sysfont):
-                self.cb_font.current(i)
-                break
+        # 字体自动跟随：按字体名在系统字体里定位（含粗/斜）；系统里没有就不顶替，弹浮窗
+        info = core.resolve_font(font, bold=bool(d["flags"] & 16), italic=bool(d["flags"] & 2))
+        self._font_info = info
+        self._sel_size = size
+        if info["source"] == "missing":
+            self.cb_font.set(f"⚠ 需要安装：{info['raw']}")     # 明确标出缺什么，不静默用宋体
+            self._show_missing_font_toast(info)
+        else:
+            self._select_font(info["path"], info["face"])
+        self._show_font_info(info, size)
         self.e_border.delete(0, "end")
         bx = self._nearest_left_border(rect)
         if bx is not None:
@@ -1317,7 +1449,7 @@ class PdfEditorApp(tk.Tk):
         self._update_add_state()
         self.e_new.focus_set()
         self._update_hint()
-        self._log(f'选中: {text!r} (字体 {font or "?"}, {size:.1f}pt)')
+        self._log(f'选中: {text!r} → 字体 {font or "?"} / {info["family"]}, {fmt_num(size)}pt')
         if self.e_new.get().strip():
             self._enable_after()
         self._schedule_draft_preview()
@@ -1333,6 +1465,12 @@ class PdfEditorApp(tk.Tk):
         """字体 / 字号 / 对齐 / 间隙 / 范围等影响绘制的项变了：刷新即时预览。"""
         if self.orig is None:
             return
+        # 之前是"缺少字体"，但用户自己在下拉里选了字体 -> 就按他选的来
+        if (self._font_info or {}).get("source") == "missing" and self.cb_font.current() >= 0:
+            fp, _ff = self._selected_font()
+            self._font_info = dict(self._font_info, source="manual",
+                                   family=os.path.basename(fp or ""))
+            self._show_font_info(self._font_info, self._sel_size)
         if self._draft_rule() is not None:
             self._enable_after()
         self._schedule_draft_preview()
@@ -1394,9 +1532,11 @@ class PdfEditorApp(tk.Tk):
             size = float(self.e_size.get() or 10)
         except ValueError:
             size = 10.0
+        fp, ff = self._selected_font()
         rule = {"old": self.e_old.get().strip(),
                 "new": self.e_new.get().strip(),
-                "font": self._selected_font_path(),
+                "font": fp or "",
+                "font_face": ff,
                 "font_size": size,
                 "bold_stroke": self._stroke_value()}
         if self.v_align.get() == "left":
@@ -1450,6 +1590,16 @@ class PdfEditorApp(tk.Tk):
             return
         if not rule["new"]:
             messagebox.showwarning(APP_TITLE, '请填写"替换"内容.')
+            return
+        if not rule["font"]:
+            raw = (self._font_info or {}).get("raw") or "未知"
+            messagebox.showwarning(
+                APP_TITLE,
+                f"这段文字用的字体（{raw}）系统里没有，先不替你决定用哪个字体。\n\n"
+                f"· 把字体文件放进「字体文件夹」（不用安装），或\n"
+                f"· 点浮窗里的「先用 … 代替」，或\n"
+                f"· 自己在下拉里挑一个字体\n"
+                f"之后再点「添加到清单」。")
             return
         if rule.get("align") == "left" and rule.get("left_border_x") is None:
             messagebox.showwarning(APP_TITLE, '左对齐需要"左边框x" (点选片段会自动填入).')
@@ -1534,7 +1684,8 @@ class PdfEditorApp(tk.Tk):
                   + ("，判定原文不是伪加粗" if bw <= 0 else ""))
 
     def _calibrate(self, rect, text, font, size):
-        font_file = core.ensure_ttf(core.find_system_font(font))
+        info = core.resolve_font(font)
+        font_file = core.ensure_ttf(info["path"], info["face"])
         zoom = 6
         clip = fitz.Rect(rect.x0 - 2, rect.y0 - 2, rect.x1 + 2, rect.y1 + 2)
 
@@ -1608,8 +1759,9 @@ class PdfEditorApp(tk.Tk):
             "src": self.src_path,
             "out": os.path.splitext(self.src_path)[0] + "_edited.pdf" if self.src_path else "output.pdf",
             "font": self._selected_font_path(),
+            "font_face": self._selected_font()[1],
             "font_name": "simsun",
-            "font_size": float(self.e_size.get() or 10),
+            "font_size": self._form_rule()["font_size"],
             "bold_stroke": self._stroke_value(),
             "replacements": self.rules,
         }
