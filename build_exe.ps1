@@ -55,6 +55,7 @@ Write-Host "==> building ($layout $mode) ..."
     --collect-all pymupdf `
     --icon "$icon" `
     --add-data "$icon;assets" `
+    --add-data "$PSScriptRoot\assets\icons;assets\icons" `
     --distpath "$outBase\dist" `
     --workpath "$outBase\build" `
     --specpath "$outBase" `
