@@ -50,6 +50,7 @@ THEMES = {
         sash="#c4c4c4",                       # 分隔条
         canvas="#e4e6e8",                     # 预览画布底色（页面四周）
         accent="#0066cc", ok="#00aa66", warn="#cc6600", pill_fg="#ffffff",
+        primary="#0E6B4F", primary_fg="#ffffff",   # 主按钮：与图标同色（深绿）
         muted="#777777", mark="#e53935", disabled="#a0a0a0",
     ),
     "dark": dict(
@@ -63,6 +64,7 @@ THEMES = {
         sash="#4a4a4a",
         canvas="#1c1c1c",
         accent="#4fc3f7", ok="#4ade80", warn="#fbbf24", pill_fg="#0b1f2a",
+        primary="#0E6B4F", primary_fg="#ffffff",
         muted="#9a9a9a", mark="#ff5252", disabled="#6f6f6f",
     ),
 }
@@ -277,12 +279,12 @@ class PdfEditorApp(tk.Tk):
                background=[("pressed", p["sel_bg"]), ("active", p["btn_hover"]), ("disabled", p["btn"])],
                foreground=[("disabled", p["disabled"])])
 
-        # 主按钮：强调色实心（只有最关键的动作用）
-        st.configure("Accent.TButton", background=p["accent"], foreground=p["pill_fg"],
-                     bordercolor=p["accent"], lightcolor=p["accent"], darkcolor=p["accent"],
-                     focuscolor=p["accent"], padding=(12, 4))
+        # 主按钮：图标同款深绿实心（只有最关键的动作用）
+        st.configure("Accent.TButton", background=p["primary"], foreground=p["primary_fg"],
+                     bordercolor=p["primary"], lightcolor=p["primary"], darkcolor=p["primary"],
+                     focuscolor=p["primary"], padding=(12, 4))
         st.map("Accent.TButton",
-               background=[("pressed", p["sel_bg"]), ("active", p["accent"]),
+               background=[("pressed", p["sel_bg"]), ("active", p["primary"]),
                            ("disabled", p["btn"])],
                foreground=[("disabled", p["disabled"])],
                bordercolor=[("disabled", p["border"])],
