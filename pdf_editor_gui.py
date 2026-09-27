@@ -128,9 +128,9 @@ HELP_TEXT = f"""PDFTextEditor · 使用说明
 
 ────────────────────────────
 【界面主题】
-工具栏右侧「更多 ▾」→「主题」可切换「浅色 / 深色」，选择会被记住，下次启动沿用。
+工具栏右侧「设置 ▾」→「主题」可切换「浅色 / 深色」，选择会被记住，下次启动沿用。
 （深色模式下预览画布、日志栏、修改清单、以及 Windows 标题栏都会一起变暗。）
-导入 / 导出 config、帮助也在这个「更多」菜单里。
+导入 / 导出 config、帮助也在这个「设置」菜单里。
 
 ────────────────────────────
 【各控件说明】
@@ -327,7 +327,7 @@ class PdfEditorApp(tk.Tk):
             help_txt.configure(background=p["field"], foreground=p["fg"],
                                insertbackground=p["fg"])
             self._help_win.configure(background=p["bg"])
-        # tk 原生菜单（「更多」下拉）
+        # tk 原生菜单（「设置」下拉）
         for m in getattr(self, "_menus", ()):
             m.configure(background=p["field"], foreground=p["fg"],
                         activebackground=p["sel_bg"], activeforeground=p["sel_fg"],
@@ -337,8 +337,8 @@ class PdfEditorApp(tk.Tk):
         self._apply_titlebar()
 
     def _build_more_menu(self, parent):
-        """把不常用的功能收进工具栏右侧的「更多 ▾」下拉，避免窄窗口被挤掉。"""
-        self.mb_more = ttk.Menubutton(parent, text="更多 ▾")
+        """把不常用的功能收进工具栏右侧的「设置 ▾」下拉，避免窄窗口被挤掉。"""
+        self.mb_more = ttk.Menubutton(parent, text="设置 ▾")
         menu = tk.Menu(self.mb_more, tearoff=0)
         theme_menu = tk.Menu(menu, tearoff=0)
         self.v_theme = tk.StringVar(value=self._theme)
@@ -405,7 +405,7 @@ class PdfEditorApp(tk.Tk):
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
         ttk.Button(bar, text="另存为…", command=self.save_as).pack(side="left")
 
-        # 不常用的收进「更多 ▾」下拉：主题 / 导入导出 config / 帮助
+        # 不常用的收进「设置 ▾」下拉：主题 / 导入导出 config / 帮助
         self._build_more_menu(bar)
 
         content = tk.PanedWindow(self, orient="vertical", sashwidth=6, sashrelief="raised",
