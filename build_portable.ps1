@@ -2,7 +2,7 @@
 # Usage:  powershell -ExecutionPolicy Bypass -File build_portable.ps1 [-SkipBuild]
 #
 # Steps: build onedir -> stage under worktemp\portable -> add portable.flag and
-# 使用说明.txt -> zip. Nothing is written outside the project folder.
+# README-Portable.txt -> zip. Nothing is written outside the project folder.
 #
 # -SkipBuild reuses the existing worktemp\pyinstaller\dist output (fast re-zip).
 #
@@ -20,7 +20,7 @@ $versionFile = Join-Path $PSScriptRoot "VERSION"
 if (-not (Test-Path $versionFile)) { Write-Error "缺少 VERSION 文件（内容形如 2.0.0）" }
 $version = (Get-Content $versionFile -Raw).Trim()
 
-$docSrc  = Join-Path $PSScriptRoot "packaging\使用说明.txt"
+$docSrc  = Join-Path $PSScriptRoot "packaging\README-Portable.txt"
 if (-not (Test-Path $docSrc)) { Write-Error "缺少说明文件：$docSrc" }
 
 $distDir = Join-Path $PSScriptRoot "worktemp\pyinstaller\dist\$Name"
@@ -49,7 +49,7 @@ New-Item -ItemType File -Path (Join-Path $stage "portable.flag") -Force | Out-Nu
 
 # --- 4) readme next to the exe (UTF-8 without BOM) ---
 $doc = (Get-Content $docSrc -Raw -Encoding UTF8).Replace("@VERSION@", $version)
-[System.IO.File]::WriteAllText((Join-Path $stage "使用说明.txt"), $doc, (New-Object System.Text.UTF8Encoding($false)))
+[System.IO.File]::WriteAllText((Join-Path $stage "README-Portable.txt"), $doc, (New-Object System.Text.UTF8Encoding($false)))
 
 # --- 5) zip ---
 Write-Host "==> compressing ..."
