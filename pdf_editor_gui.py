@@ -420,7 +420,7 @@ class PdfEditorApp(tk.Tk):
 
         # ---- 左：缩放条 + 画布 ----
         left = ttk.Frame(outer)
-        outer.add(left, stretch="always", minsize=420)
+        outer.add(left, stretch="always", minsize=320)
 
         zbar = ttk.Frame(left, padding=(6, 4))
         zbar.pack(side="top", fill="x")
@@ -456,7 +456,7 @@ class PdfEditorApp(tk.Tk):
         self.lbl_before.pack(side="top", anchor="w", padx=4)
         self.canvas = tk.Canvas(f_before, background=self._pal["canvas"], highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
-        self.paned.add(f_before, stretch="always", minsize=280)
+        self.paned.add(f_before, stretch="always", minsize=180)
 
         self.f_after = ttk.Frame(self.paned)
         self.lbl_after = ttk.Label(self.f_after, text="改后 · 只读预览",
@@ -509,8 +509,11 @@ class PdfEditorApp(tk.Tk):
         self._style_widgets()
 
     def _build_edit_form(self, parent):
-        self.lbl_hint = ttk.Label(parent, text="", foreground=self._pal["accent"], wraplength=380, justify="left")
+        self.lbl_hint = ttk.Label(parent, text="", foreground=self._pal["accent"], wraplength=340, justify="left")
         self.lbl_hint.pack(fill="x", pady=(0, 6))
+        # 宽度跟随右栏，避免固定 wraplength 把右栏最小宽度顶大
+        parent.bind("<Configure>",
+                    lambda e: self.lbl_hint.configure(wraplength=max(220, e.width - 24)))
 
         edit = ttk.LabelFrame(parent, text="编辑选中片段", padding=6)
         edit.pack(fill="x")
@@ -606,10 +609,11 @@ class PdfEditorApp(tk.Tk):
             self.update_idletasks()
         except tk.TclError:
             return
-        # 右栏最小宽度：取编辑表单请求宽度 + 边距
+        # 右栏最小宽度：取编辑表单请求宽度 + 边距；窄窗口时按窗宽比例封顶，避免内部约束打架
         try:
             need_w = max(self._pane_edit.winfo_reqwidth(),
-                         self.right_paned.winfo_reqwidth()) + 30
+                         self.right_paned.winfo_reqwidth()) + 16
+            need_w = min(need_w, max(320, int(self.winfo_width() * 0.36)))
             self.outer.paneconfigure(self.right_frame, minsize=need_w)
             # 初始宽度若小于最小宽度，直接撑到最小宽度，避免一上来就被裁切
             if self.right_frame.winfo_width() < need_w:
@@ -999,7 +1003,7 @@ class PdfEditorApp(tk.Tk):
             panes = [str(p) for p in self.paned.panes()]
             if self.show_after.get():
                 if str(self.f_after) not in panes:
-                    self.paned.add(self.f_after, stretch="always", minsize=280)
+                    self.paned.add(self.f_after, stretch="always", minsize=180)
             else:
                 if str(self.f_after) in panes:
                     self.paned.forget(self.f_after)
