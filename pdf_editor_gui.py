@@ -49,7 +49,8 @@ THEMES = {
         head="#d6d6d6",                       # 表头（比行底深一档，才像表头）
         sash="#c4c4c4",                       # 分隔条
         canvas="#e4e6e8",                     # 预览画布底色（页面四周）
-        accent="#0066cc", ok="#00aa66", warn="#cc6600", pill_fg="#ffffff",
+        accent="#0066cc", ok="#00aa66", warn="#cc6600", pill_fg="#FFD54A",
+        hint="#B8860B",                            # 阶段提示文字（黄色系，起提醒作用）
         primary="#0E6B4F", primary_fg="#ffffff",   # 主按钮：与图标同色（深绿）
         muted="#777777", mark="#e53935", disabled="#a0a0a0",
     ),
@@ -63,7 +64,8 @@ THEMES = {
         head="#454545",
         sash="#4a4a4a",
         canvas="#1c1c1c",
-        accent="#4fc3f7", ok="#4ade80", warn="#fbbf24", pill_fg="#0b1f2a",
+        accent="#4fc3f7", ok="#4ade80", warn="#fbbf24", pill_fg="#FFD54A",
+        hint="#FFD54A",
         primary="#0E6B4F", primary_fg="#ffffff",
         muted="#9a9a9a", mark="#ff5252", disabled="#6f6f6f",
     ),
@@ -343,7 +345,7 @@ class PdfEditorApp(tk.Tk):
         st.map("TScrollbar", background=[("active", p["btn_hover"]), ("pressed", p["sel_bg"])])
 
         st.configure("TScale", background=p["bg"], troughcolor=p["field"],
-                     bordercolor=p["border"], lightcolor=p["accent"], darkcolor=p["accent"])
+                     bordercolor=p["border"], lightcolor=p["primary"], darkcolor=p["primary"])
         st.map("TScale", background=[("active", p["bg"])])
 
         st.configure("Treeview", background=p["field"], fieldbackground=p["field"],
@@ -374,11 +376,11 @@ class PdfEditorApp(tk.Tk):
         self.log.configure(background=p["field"], foreground=p["fg"],
                            insertbackground=p["fg"], selectbackground=p["sel_bg"],
                            selectforeground=p["sel_fg"], highlightthickness=0, bd=0)
-        self.lbl_hint.configure(foreground=p["accent"])
+        self.lbl_hint.configure(foreground=p["hint"])
         self.lbl_mousehint.configure(foreground=p["muted"])
         # tips 胶囊跟着换色
         self.pill.configure(bg=p["bg"])
-        self.pill.itemconfigure(self._pill_shape, fill=p["accent"])
+        self.pill.itemconfigure(self._pill_shape, fill=p["primary"])
         self.pill.itemconfigure(self._pill_text, fill=p["pill_fg"])
         help_txt = getattr(self, "_help_txt", None)
         if help_txt is not None and help_txt.winfo_exists():
@@ -508,9 +510,9 @@ class PdfEditorApp(tk.Tk):
         hdr = ttk.Frame(left)
         hdr.pack(side="top", fill="x", padx=6, pady=(2, 2))
         self.pill, self._pill_shape, self._pill_text = make_pill(
-            hdr, "tips", self._pal["bg"], self._pal["accent"], self._pal["pill_fg"], UI_FONT)
+            hdr, "tips", self._pal["bg"], self._pal["primary"], self._pal["pill_fg"], UI_FONT)
         self.pill.pack(side="left")
-        self.lbl_hint = ttk.Label(hdr, text="", foreground=self._pal["accent"])
+        self.lbl_hint = ttk.Label(hdr, text="", foreground=self._pal["hint"])
         self.lbl_hint.pack(side="left", padx=(6, 0))
         hdr.bind("<Configure>", lambda e: self.lbl_hint.configure(wraplength=max(200, e.width - 60)))
 
