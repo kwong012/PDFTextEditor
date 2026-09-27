@@ -39,6 +39,11 @@ RENDER_DEBOUNCE_MS = 40
 DRAFT_DEBOUNCE_MS = 350    # 表单草稿变了之后，等这么久再重建预览（别每敲一键就重建整份文档）
 RIGHT_PANE_MIN = 400       # 右侧操作栏的最小宽度（保证表单/清单不被压扁）
 
+# 伪加粗描边（bold_stroke）：默认关（纯填充最接近原文）；开启时的默认粗细与标定候选档位。
+# 实测：描边 0.03 时墨量是原文的 145%（看着明显变粗），0.005 时约 96%（基本吻合）。
+DEFAULT_STROKE = 0.005
+STROKE_CANDIDATES = (0.0, 0.005, 0.008, 0.01, 0.015, 0.02, 0.03, 0.04)
+
 # ---------------- 主题（浅色 / 深色） ----------------
 # Windows 下 ttk 默认用 vista 主题，很多颜色改不动，所以统一切到 clam，
 # 由下面的调色板完全接管配色；tk 原生控件（画布 / 日志 / 分隔条）另行上色。
@@ -104,6 +109,8 @@ HINT_PICK = "单击左侧预览里的文字"
 HINT_TYPE = "在「替换」里填新文字"
 HINT_ADD = "右侧是即时预览（尚未加入清单），点「添加到清单」生效"
 HINT_MORE = "继续点文字加下一条，或点「另存为…」导出"
+# 高级组标题：收起/展开时只换前面的 ▸ / ▾
+ADV_LABEL = "高级：左边框位置 / 间隙 / 字宽 / 范围 / 描边"
 
 
 def make_pill(parent, text, canvas_bg, fill, text_color, font):
@@ -174,13 +181,17 @@ HELP_TEXT = f"""PDFTextEditor · 使用说明
     - 所有相同文本：该文字在文档里出现几次就全改（例如上下两份相同的表）。
     - 仅选中这一处：只改你点的这一处。
 · 添加/更新   ：把当前设置加进「修改清单」；同一处的重复添加会覆盖。
-· 自动标定加粗：改完之后如果字看起来偏粗/偏细，点一下自动校准描边宽度。
+· 描边(高级)   ：默认关（新字是纯填充，最接近原文）。只有原文件的"加粗"是用描边
+                 模拟的时候，才在「高级」里勾「伪加粗」并填宽度（默认 0.005）。
+· 自动标定描边 ：在「设置 ▾」里。会拿文档里的真实文字当样本，自动算出该用多粗的描边
+                 （算出来是 0 就表示原文不是伪加粗，不用描边）。
 · 导入/导出 config：与命令行版共用同一份配置文件，便于复用与批量处理。
 
 ────────────────────────────
 【常见问题】
 Q：为什么改完字变粗或变细？
-A：原文件的"加粗"常是用描边模拟的。点「自动标定加粗」重新校准即可。
+A：先看「高级」里的描边：默认是不描边的。若原文的加粗是用描边模拟的，勾上「伪加粗」
+   并填个合适的宽度；也可以点「设置 ▾ → 自动标定描边」让它自动算。
 
 Q：为什么导出的文件变小/变大了？
 A：程序会对内嵌字体做子集化处理，体积通常和原文件接近；这是正常的。
@@ -211,6 +222,12 @@ def enable_dpi_awareness():
             pass
 
 
+def fmt_num(v, nd: int = 2) -> str:
+    """数字转文本：去掉多余的 0（10.45 -> "10.45"，10.0 -> "10"）。字号/描边都用它。"""
+    s = f"{float(v):.{nd}f}".rstrip("0").rstrip(".")
+    return s if s not in ("", "-", "-0") else "0"
+
+
 def rule_key(rule: dict):
     """规则的唯一键：原文 + 页码 + 位置（与「添加到清单」的去重口径一致）。"""
     return (rule.get("old"), rule.get("page"), tuple(rule.get("bbox") or ()) or None)
@@ -234,7 +251,7 @@ class PdfEditorApp(tk.Tk):
         self.page_no = 0
         self.zoom = 1.2
         self.rules = []
-        self.bold_stroke = 0.03
+        self.bold_stroke = 0.0            # 伪加粗描边：默认关（「高级」里可开）
         self._span_cache = {}
         self._tiles = {}
         self._img_items = {}
@@ -419,7 +436,7 @@ class PdfEditorApp(tk.Tk):
         menu.add_checkbutton(label="深色主题", variable=self.v_dark,
                              command=self._on_toggle_dark)
         menu.add_separator()
-        menu.add_command(label="自动标定加粗", command=self.auto_calibrate)
+        menu.add_command(label="自动标定描边", command=self.auto_calibrate)
         menu.add_separator()
         menu.add_command(label="导入 config…", command=self.import_config)
         menu.add_command(label="导出 config…", command=self.export_config)
@@ -657,7 +674,7 @@ class PdfEditorApp(tk.Tk):
 
         # ── 高级项：默认收起，点一行小字展开 ──
         self._adv_open = False
-        self.lbl_adv = ttk.Label(edit, text="▸ 高级：左边框位置 / 间隙 / 字宽 / 范围",
+        self.lbl_adv = ttk.Label(edit, text=f"▸ {ADV_LABEL}",
                                  style="Muted.TLabel", cursor="hand2")
         self.lbl_adv.grid(row=4, column=0, columnspan=3, sticky="w", pady=(8, 0))
         self.lbl_adv.bind("<Button-1>", self._toggle_advanced)
@@ -685,6 +702,20 @@ class PdfEditorApp(tk.Tk):
                         command=self._on_draft_change).pack(side="left")
         ttk.Radiobutton(sf, text="仅选中这一处", value="single", variable=self.v_scope,
                         command=self._on_draft_change).pack(side="left", padx=(8, 0))
+
+        # 描边（伪加粗）：默认关。原文是"伪加粗"（用描边假装粗体）时才需要；
+        # 加多了会让替换后的字明显比原文粗（实测 0.03 时墨量是原文的 145%）。
+        ttk.Label(self.adv, text="描边").grid(row=2, column=0, sticky="w", pady=4)
+        self.v_stroke = tk.BooleanVar(value=False)
+        stf = ttk.Frame(self.adv)
+        stf.grid(row=2, column=1, sticky="w", pady=4)
+        ttk.Checkbutton(stf, text="伪加粗", variable=self.v_stroke,
+                        command=self._on_draft_change).pack(side="left")
+        self.e_stroke = ttk.Entry(stf, width=6)
+        self.e_stroke.insert(0, fmt_num(DEFAULT_STROKE, 3))     # 描边要 3 位小数：0.005
+        self.e_stroke.bind("<KeyRelease>", self._on_draft_change)
+        self.e_stroke.pack(side="left", padx=(8, 4))
+        ttk.Label(stf, text="(0 = 不描边)", style="Muted.TLabel").pack(side="left")
         self.adv.grid_remove()               # 默认收起
 
         btns = ttk.Frame(edit)
@@ -702,10 +733,10 @@ class PdfEditorApp(tk.Tk):
         self._adv_open = not self._adv_open
         if self._adv_open:
             self.adv.grid()
-            self.lbl_adv.configure(text="▾ 高级：左边框位置 / 间隙 / 字宽 / 范围")
+            self.lbl_adv.configure(text=f"▾ {ADV_LABEL}")
         else:
             self.adv.grid_remove()
-            self.lbl_adv.configure(text="▸ 高级：左边框位置 / 间隙 / 字宽 / 范围")
+            self.lbl_adv.configure(text=f"▸ {ADV_LABEL}")
         # 表单高度变了：让右栏分隔条重新贴到表单底边
         self.update_idletasks()
         self._apply_minsizes()
@@ -877,6 +908,23 @@ class PdfEditorApp(tk.Tk):
             return float(s)
         except Exception:
             return 1 / 3
+
+    def _stroke_value(self):
+        """「高级」里的描边：没勾选 = 0（不描边），勾了才用填的数值。"""
+        if not self.v_stroke.get():
+            return 0.0
+        try:
+            return max(0.0, float(self.e_stroke.get() or DEFAULT_STROKE))
+        except ValueError:
+            return 0.0
+
+    def _sync_stroke_widgets(self, value=None):
+        """把描边值（默认取 self.bold_stroke）反映到「高级」的控件上。"""
+        v = self.bold_stroke if value is None else float(value)
+        self.v_stroke.set(v > 0)
+        self.e_stroke.delete(0, "end")
+        self.e_stroke.insert(0, fmt_num(v if v > 0 else DEFAULT_STROKE, 3))
+        self._on_draft_change()
 
     def _update_add_state(self):
         state = "normal" if (self.e_old.get().strip() and self.e_new.get().strip()) else "disabled"
@@ -1255,7 +1303,7 @@ class PdfEditorApp(tk.Tk):
         self._sel_bbox = rect
         self._set_e_old(text)
         self.e_size.delete(0, "end")
-        self.e_size.insert(0, str(int(round(size))))
+        self.e_size.insert(0, fmt_num(size))     # 保精度：10.45 就是 10.45，不取整
         sysfont = core.find_system_font(font)
         for i, (p, _l) in enumerate(self.font_choices):
             if os.path.normcase(p) == os.path.normcase(sysfont):
@@ -1350,7 +1398,7 @@ class PdfEditorApp(tk.Tk):
                 "new": self.e_new.get().strip(),
                 "font": self._selected_font_path(),
                 "font_size": size,
-                "bold_stroke": self.bold_stroke}
+                "bold_stroke": self._stroke_value()}
         if self.v_align.get() == "left":
             rule["align"] = "left"
             try:
@@ -1480,8 +1528,10 @@ class PdfEditorApp(tk.Tk):
         self.bold_stroke = bw
         for r in self.rules:
             r["bold_stroke"] = bw
+        self._sync_stroke_widgets(bw)
         self._render_all()
-        self._log(f'自动标定完成: bold_stroke = {bw} (用 {text!r} 校准)')
+        self._log(f"自动标定完成: 描边 = {fmt_num(bw, 3)} (用 {text!r} 校准)"
+                  + ("，判定原文不是伪加粗" if bw <= 0 else ""))
 
     def _calibrate(self, rect, text, font, size):
         font_file = core.ensure_ttf(core.find_system_font(font))
@@ -1501,7 +1551,7 @@ class PdfEditorApp(tk.Tk):
         if origins is None:
             return self.bold_stroke
         best = (1e9, self.bold_stroke)
-        for bw in (0.02, 0.025, 0.03, 0.035, 0.04):
+        for bw in STROKE_CANDIDATES:        # 含 0：原文不是伪加粗时就能选"不描边"
             doc = fitz.open(self.src_path)
             pg = doc[self.page_no]
             r = fitz.Rect(rect)
@@ -1560,7 +1610,7 @@ class PdfEditorApp(tk.Tk):
             "font": self._selected_font_path(),
             "font_name": "simsun",
             "font_size": float(self.e_size.get() or 10),
-            "bold_stroke": self.bold_stroke,
+            "bold_stroke": self._stroke_value(),
             "replacements": self.rules,
         }
         with open(path, "w", encoding="utf-8") as f:
@@ -1579,8 +1629,8 @@ class PdfEditorApp(tk.Tk):
             messagebox.showerror(APP_TITLE, f"读取失败: {e}")
             return
         self.rules = [r for r in cfg.get("replacements", []) if isinstance(r, dict) and r.get("old")]
-        if cfg.get("bold_stroke"):
-            self.bold_stroke = float(cfg["bold_stroke"])
+        self.bold_stroke = float(cfg.get("bold_stroke") or 0.0)
+        self._sync_stroke_widgets()
         if not self.src_path and cfg.get("src"):
             src = cfg["src"] if os.path.isabs(cfg["src"]) else os.path.join(os.path.dirname(path), cfg["src"])
             if os.path.exists(src):
