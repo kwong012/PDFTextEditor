@@ -268,6 +268,8 @@ class PdfEditorApp(tk.Tk):
         self._color_override = None                   # 用户自选颜色；None = 跟随原文
         self._picking = False                         # 取色器：正等着在页面上点一下
         self._drag = None                             # 左键框选状态（按下-拖动-松开）
+        self._sel_from_range = False                  # 当前选中是不是框选出来的
+        self._sel_span_count = 1                      # 框选到了几个片段（>1 才需要提醒）
 
         # 主题：默认浅色；上次的选择会记住（settings.json 与字体缓存同目录）
         saved_theme = load_settings().get("theme")
@@ -735,11 +737,11 @@ class PdfEditorApp(tk.Tk):
         sf = ttk.Frame(self.adv)
         sf.grid(row=1, column=1, sticky="w", pady=4)
         ttk.Radiobutton(sf, text="所有相同文本", value="all", variable=self.v_scope,
-                        command=self._on_draft_change).pack(side="left")
+                        command=self._on_scope_change).pack(side="left")
         ttk.Radiobutton(sf, text="仅选中这一处", value="single", variable=self.v_scope,
-                        command=self._on_draft_change).pack(side="left", padx=(8, 0))
+                        command=self._on_scope_change).pack(side="left", padx=(8, 0))
         ttk.Radiobutton(sf, text="框选的这一段", value="range", variable=self.v_scope,
-                        command=self._on_draft_change).pack(side="left", padx=(8, 0))
+                        command=self._on_scope_change).pack(side="left", padx=(8, 0))
 
         # 描边（伪加粗）：默认关。原文是"伪加粗"（用描边假装粗体）时才需要；
         # 加多了会让替换后的字明显比原文粗（实测 0.03 时墨量是原文的 145%）。
@@ -1687,7 +1689,7 @@ class PdfEditorApp(tk.Tk):
         merged = {"rect": union, "text": self._join_selected(sel),
                   "font": key[0], "size": key[1], "flags": key[2], "color": key[3]}
         self.v_scope.set("range")             # 框选 = 只改这一段
-        self._apply_span_choice(merged, count=len(sel))
+        self._apply_span_choice(merged, count=len(sel), from_range=True)
         if len(cnt) > 1:
             self._log(f"提示：选区里有 {len(cnt)} 种样式，已统一按 {key[0]} {fmt_num(key[1])}pt 处理")
 
@@ -1708,9 +1710,11 @@ class PdfEditorApp(tk.Tk):
             prev = d
         return out
 
-    def _apply_span_choice(self, d, count=1):
+    def _apply_span_choice(self, d, count=1, from_range=False):
         """把一个片段（或框选合并后的结果）填进表单。"""
         rect, text, font, size = d["rect"], d["text"], d["font"], d["size"]
+        self._sel_from_range = bool(from_range)
+        self._sel_span_count = int(count)
         self._sel_bbox = rect
         self._set_e_old(text)
         self.e_size.delete(0, "end")
@@ -1749,6 +1753,13 @@ class PdfEditorApp(tk.Tk):
         if self.e_old.get().strip() and self.e_new.get().strip():
             self._enable_after()
         self._schedule_draft_preview()
+
+    def _on_scope_change(self, _event=None):
+        """「范围」变了：框选合并出来的原文按「所有相同文本」匹配不到东西，先提醒一句。"""
+        if self.v_scope.get() == "all" and self._sel_from_range and self._sel_span_count > 1:
+            self._log(f"注意：这条原文是框选合并的 {self._sel_span_count} 个片段，"
+                      f"按「所有相同文本」几乎匹配不到（要只改这一处请选「框选的这一段」）")
+        self._on_draft_change()
 
     def _on_draft_change(self, _event=None):
         """字体 / 字号 / 对齐 / 间隙 / 范围等影响绘制的项变了：刷新即时预览。"""
@@ -1810,6 +1821,8 @@ class PdfEditorApp(tk.Tk):
         self.e_new.delete(0, "end")
         self._sel_bbox = None
         self._sel_rgb = None
+        self._sel_from_range = False
+        self._sel_span_count = 1
         self._color_override = None
         self.canvas.delete("sel")
         self._update_add_state()
@@ -1891,6 +1904,16 @@ class PdfEditorApp(tk.Tk):
                 APP_TITLE,
                 "框选的范围已经失效（比如翻过页）。\n\n"
                 "请在左侧预览里重新框选一次，或把「范围」改成「所有相同文本」。")
+            return
+        if rule.get("scope", "all") == "all" and self._sel_from_range and self._sel_span_count > 1:
+            # 框选合并的原文（多个片段拼起来）几乎不可能等于 PDF 里某一段真实文字，
+            # 按「所有相同文本」加进去是"白加一条"（静默无效果），所以拦下来。
+            messagebox.showwarning(
+                APP_TITLE,
+                f"这条原文是把 {self._sel_span_count} 个片段拼起来的（框选合并），"
+                f"按「所有相同文本」几乎匹配不到任何地方，加了不会有任何效果。\n\n"
+                "· 要只改框选的这一处：把「范围」选回「框选的这一段」\n"
+                "· 要全文替换：先把这里改成某一处真实存在的片段文字（单击选中它再添加）")
             return
         if not rule["font"]:
             raw = (self._font_info or {}).get("raw") or "未知"
