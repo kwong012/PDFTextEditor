@@ -676,27 +676,49 @@ def _merge_ranges(found):
     合并键是「页码 + 规则」：**跨页绝不合并**（不同页的坐标毫无可比性，
     并成一条会得到一个横跨多页的乱 bbox，一删就是一大片）。
     """
-    merged = {}
-    for page, bbox, origins, rule, _span in found:
+    groups = {}
+    for item in found:
+        page, _bbox, _origins, rule, _span = item
         if rule.get("scope") == "range":
-            key = (page.number, id(rule))
-            if key not in merged:
-                merged[key] = [page, fitz.Rect(bbox), list(origins), rule, None]
-            else:
-                merged[key][1] |= fitz.Rect(bbox)
-                merged[key][2].extend(origins)
-    if not merged:
+            groups.setdefault((page.number, id(rule)), []).append(item)
+    if not groups:
         return found
-    out, done = [], set()
+
+    def order(item):
+        """阅读顺序。基点 y 就是基线 —— 同一行的片段基线完全相同（字号不同也一样），
+        所以「先按基线、再按 x」比用 bbox 或用栏序更稳。内容流顺序不保证有序
+        （有些 PDF 先写右边再写左边），不排序会把新文字排到错误的位置。"""
+        _page, bbox, origins, _rule, _span = item
+        if origins:
+            return (round(origins[0][1], 1), bbox.x0)
+        return (round(bbox.y1, 1), bbox.x0)
+
+    merged, done = {}, set()
+    for item in found:
+        page, _bbox, _origins, rule, _span = item
+        if rule.get("scope", "") != "range":
+            continue
+        key = (page.number, id(rule))
+        if key in done:
+            continue
+        done.add(key)
+        items = sorted(groups[key], key=order)
+        box = fitz.Rect(items[0][1])
+        pts = list(items[0][2])
+        for _p, b, o, _r, _s in items[1:]:
+            box |= fitz.Rect(b)
+            pts.extend(o)
+        merged[key] = [items[0][0], box, pts, items[0][3], None]
+
+    out = []
     for page, bbox, origins, rule, span in found:
         if rule.get("scope") == "range":
             key = (page.number, id(rule))
             if key in done:
-                continue
-            done.add(key)
-            out.append(tuple(merged[key]))
-        else:
-            out.append((page, bbox, origins, rule, span))
+                done.discard(key)
+                out.append(tuple(merged[key]))
+            continue
+        out.append((page, bbox, origins, rule, span))
     return out
 
 
