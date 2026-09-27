@@ -46,7 +46,7 @@ THEMES = {
         head="#e3e3e3",                       # 表头
         sash="#c4c4c4",                       # 分隔条
         canvas="#e4e6e8",                     # 预览画布底色（页面四周）
-        accent="#0066cc", ok="#00aa66", warn="#cc6600",
+        accent="#0066cc", ok="#00aa66", warn="#cc6600", pill_fg="#ffffff",
         muted="#777777", mark="#e53935", disabled="#a0a0a0",
     ),
     "dark": dict(
@@ -58,7 +58,7 @@ THEMES = {
         head="#333333",
         sash="#4a4a4a",
         canvas="#1c1c1c",
-        accent="#4fc3f7", ok="#4ade80", warn="#fbbf24",
+        accent="#4fc3f7", ok="#4ade80", warn="#fbbf24", pill_fg="#0b1f2a",
         muted="#9a9a9a", mark="#ff5252", disabled="#6f6f6f",
     ),
 }
@@ -86,12 +86,27 @@ def save_settings(data: dict) -> None:
     except Exception:
         pass
 
-# 单行提示：按当前操作阶段只显示一条，省出右栏高度
-HINT_OPEN = "① 先「打开 PDF」"
-HINT_PICK = "② 点左侧预览里的文字"
-HINT_TYPE = "③ 在「替换为」里填新文字"
-HINT_ADD = "④ 点「添加到清单」"
-HINT_MORE = "② 继续点文字加下一条 ｜ ⑤ 点「另存为…」导出"
+# 单行提示：按当前操作阶段只显示一条（序号交给「tips」胶囊，文案里不再带序号）
+HINT_OPEN = "先「打开 PDF」"
+HINT_PICK = "单击左侧预览里的文字"
+HINT_TYPE = "在「替换为」里填新文字"
+HINT_ADD = "点「添加到清单」"
+HINT_MORE = "继续点文字加下一条，或点「另存为…」导出"
+
+
+def make_pill(parent, text, canvas_bg, fill, text_color, font):
+    """画一个圆角胶囊徽标，返回 (canvas, 形状 id, 文字 id)，便于换主题时重新上色。"""
+    from tkinter import font as tkfont
+    f = tkfont.Font(font=font)
+    w = f.measure(text) + 16
+    h = f.metrics("linespace") + 2
+    cv = tk.Canvas(parent, width=w, height=h, highlightthickness=0, bd=0, bg=canvas_bg)
+    r = h / 2.0
+    pts = [r, 0, w - r, 0, w, 0, w, r, w, h - r, w, h, w - r, h,
+           r, h, 0, h, 0, h - r, 0, r, 0, 0]
+    shape = cv.create_polygon(pts, smooth=True, fill=fill)
+    tid = cv.create_text(w / 2, h / 2, text=text, fill=text_color, font=font)
+    return cv, shape, tid
 
 HELP_TEXT = f"""PDFTextEditor · 使用说明
 
@@ -321,9 +336,11 @@ class PdfEditorApp(tk.Tk):
                            insertbackground=p["fg"], selectbackground=p["sel_bg"],
                            selectforeground=p["sel_fg"], highlightthickness=0, bd=0)
         self.lbl_hint.configure(foreground=p["accent"])
-        self.lbl_before.configure(foreground=p["ok"])
-        self.lbl_after.configure(foreground=p["warn"])
         self.lbl_mousehint.configure(foreground=p["muted"])
+        # tips 胶囊跟着换色
+        self.pill.configure(bg=p["bg"])
+        self.pill.itemconfigure(self._pill_shape, fill=p["accent"])
+        self.pill.itemconfigure(self._pill_text, fill=p["pill_fg"])
         help_txt = getattr(self, "_help_txt", None)
         if help_txt is not None and help_txt.winfo_exists():
             help_txt.configure(background=p["field"], foreground=p["fg"],
@@ -444,6 +461,16 @@ class PdfEditorApp(tk.Tk):
                                        foreground=self._pal["muted"])
         self.lbl_mousehint.pack(side="left", padx=10)
 
+        # 画布上方一行：「tips」胶囊 + 当前阶段提示（替代原来的「原图 / 改后」标签）
+        hdr = ttk.Frame(left)
+        hdr.pack(side="top", fill="x", padx=6, pady=(2, 2))
+        self.pill, self._pill_shape, self._pill_text = make_pill(
+            hdr, "tips", self._pal["bg"], self._pal["accent"], self._pal["pill_fg"], UI_FONT)
+        self.pill.pack(side="left")
+        self.lbl_hint = ttk.Label(hdr, text="", foreground=self._pal["accent"])
+        self.lbl_hint.pack(side="left", padx=(6, 0))
+        hdr.bind("<Configure>", lambda e: self.lbl_hint.configure(wraplength=max(200, e.width - 60)))
+
         body = ttk.Frame(left)
         body.pack(fill="both", expand=True)
         body.rowconfigure(0, weight=1)
@@ -454,17 +481,11 @@ class PdfEditorApp(tk.Tk):
         self.paned.grid(row=0, column=0, sticky="nsew")
 
         f_before = ttk.Frame(self.paned)
-        self.lbl_before = ttk.Label(f_before, text="原图 · 点这里选文字",
-                                    foreground=self._pal["ok"], font=UI_FONT_BOLD)
-        self.lbl_before.pack(side="top", anchor="w", padx=4)
         self.canvas = tk.Canvas(f_before, background=self._pal["canvas"], highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         self.paned.add(f_before, stretch="always", minsize=180)
 
         self.f_after = ttk.Frame(self.paned)
-        self.lbl_after = ttk.Label(self.f_after, text="改后 · 只读预览",
-                                   foreground=self._pal["warn"], font=UI_FONT_BOLD)
-        self.lbl_after.pack(side="top", anchor="w", padx=4)
         self.canvas_after = tk.Canvas(self.f_after, background=self._pal["canvas"], highlightthickness=0)
         self.canvas_after.pack(fill="both", expand=True)
 
@@ -593,12 +614,6 @@ class PdfEditorApp(tk.Tk):
         ttk.Button(lb, text="另存为…", command=self.save_as).pack(side="right")
 
     def _build_log_pane(self, parent):
-        # 单行阶段提示：整窗通栏，正好在「日志」上方
-        self.lbl_hint = ttk.Label(parent, text="", foreground=self._pal["accent"],
-                                  anchor="w", justify="left")
-        self.lbl_hint.pack(side="top", fill="x", pady=(0, 3))
-        parent.bind("<Configure>",
-                    lambda e: self.lbl_hint.configure(wraplength=max(200, e.width - 12)))
         logf = ttk.LabelFrame(parent, text="日志", padding=4)
         logf.pack(fill="both", expand=True)
         sb = ttk.Scrollbar(logf, orient="vertical")
