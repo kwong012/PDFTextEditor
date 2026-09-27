@@ -391,22 +391,21 @@ class PdfEditorApp(tk.Tk):
         bar = ttk.Frame(self, padding=4)
         bar.pack(side="top", fill="x")
         ttk.Button(bar, text="打开 PDF", command=self.open_pdf).pack(side="left")
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Button(bar, text="◀", width=3, command=lambda: self.change_page(-1)).pack(side="left")
         self.lbl_page = ttk.Label(bar, text="0/0", width=7, anchor="center")
         self.lbl_page.pack(side="left")
         ttk.Button(bar, text="▶", width=3, command=lambda: self.change_page(1)).pack(side="left")
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Button(bar, text="自动标定加粗", command=self.auto_calibrate).pack(side="left")
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         ttk.Checkbutton(bar, text="对比预览", variable=self.show_after,
                         command=self._on_toggle_after).pack(side="left")
-        ttk.Button(bar, text="适应窗口", command=self.autofit).pack(side="left", padx=(6, 0))
-        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6)
-        ttk.Button(bar, text="另存为…", command=self.save_as).pack(side="left")
+        ttk.Button(bar, text="适应窗口", command=self.autofit).pack(side="left")
 
-        # 不常用的收进「设置 ▾」下拉：主题 / 导入导出 config / 帮助
+        # 右端动作区：「设置 ▾」在最右，「另存为…」紧挨其左（与右栏右缘同一条竖线）
         self._build_more_menu(bar)
+        ttk.Button(bar, text="另存为…", command=self.save_as).pack(side="right", padx=(0, 8))
 
         content = tk.PanedWindow(self, orient="vertical", sashwidth=6, sashrelief="raised",
                                  background=self._pal["sash"], bd=0, opaqueresize=False)
