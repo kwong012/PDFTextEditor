@@ -508,7 +508,7 @@ class PdfEditorApp(tk.Tk):
 
         # 画布上方一行：「tips」胶囊 + 当前阶段提示（替代原来的「原图 / 改后」标签）
         hdr = ttk.Frame(left)
-        hdr.pack(side="top", fill="x", padx=6, pady=(2, 2))
+        hdr.pack(side="top", fill="x", padx=8, pady=(6, 4))
         self.pill, self._pill_shape, self._pill_text = make_pill(
             hdr, "tips", self._pal["bg"], self._pal["primary"], self._pal["pill_fg"], UI_FONT)
         self.pill.pack(side="left")
@@ -553,7 +553,7 @@ class PdfEditorApp(tk.Tk):
         self.bind("<Control-minus>", lambda e: self.set_zoom(self.zoom / 1.25))
 
         # ---- 右：竖向可拖（编辑 | 修改清单 | 日志） ----
-        right = ttk.Frame(outer, padding=6)
+        right = ttk.Frame(outer, padding=8)
         self.right_frame = right
         outer.add(right, stretch="never", minsize=330, width=440)
 
@@ -572,29 +572,29 @@ class PdfEditorApp(tk.Tk):
         self.right_paned.add(pane2, stretch="always", minsize=110)
 
         # 日志：整窗底部通栏，可上下拖高度
-        logpane = ttk.Frame(content, padding=(6, 2))
+        logpane = ttk.Frame(content, padding=(8, 4))
         self._build_log_pane(logpane)
         content.add(logpane, stretch="never", minsize=70, height=150)
 
         self._style_widgets()
 
     def _build_edit_form(self, parent):
-        edit = ttk.LabelFrame(parent, text="编辑选中片段", padding=6)
+        edit = ttk.LabelFrame(parent, text="编辑选中片段", padding=8)
         edit.pack(fill="x")
 
-        ttk.Label(edit, text="原文").grid(row=0, column=0, sticky="w", pady=2)
+        ttk.Label(edit, text="原文").grid(row=0, column=0, sticky="w", pady=4)
         self.e_old = ttk.Entry(edit, width=34)
-        self.e_old.grid(row=0, column=1, columnspan=2, sticky="we", pady=2)
+        self.e_old.grid(row=0, column=1, columnspan=2, sticky="we", pady=4)
 
-        ttk.Label(edit, text="替换为").grid(row=1, column=0, sticky="w", pady=2)
+        ttk.Label(edit, text="替换为").grid(row=1, column=0, sticky="w", pady=4)
         self.e_new = ttk.Entry(edit, width=34)
-        self.e_new.grid(row=1, column=1, columnspan=2, sticky="we", pady=2)
+        self.e_new.grid(row=1, column=1, columnspan=2, sticky="we", pady=4)
         self.e_new.bind("<Return>", lambda e: self.add_rule())
         self.e_new.bind("<KeyRelease>", lambda e: self._on_new_text())
 
-        ttk.Label(edit, text="字体").grid(row=2, column=0, sticky="w", pady=2)
+        ttk.Label(edit, text="字体").grid(row=2, column=0, sticky="w", pady=4)
         fontbox = ttk.Frame(edit)
-        fontbox.grid(row=2, column=1, columnspan=2, sticky="we", pady=2)
+        fontbox.grid(row=2, column=1, columnspan=2, sticky="we", pady=4)
         self.cb_font = ttk.Combobox(fontbox, width=18, state="readonly",
                                     values=[label for _, label in self.font_choices])
         self.cb_font.current(0)
@@ -605,14 +605,14 @@ class PdfEditorApp(tk.Tk):
         self.e_size.pack(side="right", padx=(4, 0))
         ttk.Label(fontbox, text="字号").pack(side="right")
 
-        ttk.Label(edit, text="对齐").grid(row=3, column=0, sticky="w", pady=2)
+        ttk.Label(edit, text="对齐").grid(row=3, column=0, sticky="w", pady=4)
         self.v_align = tk.StringVar(value="match")
         af = ttk.Frame(edit)
         af.grid(row=3, column=1, columnspan=2, sticky="w")
         ttk.Radiobutton(af, text="保持原位", value="match", variable=self.v_align).pack(side="left")
         ttk.Radiobutton(af, text="左对齐留白", value="left", variable=self.v_align).pack(side="left", padx=(8, 0))
 
-        ttk.Label(edit, text="留白").grid(row=4, column=0, sticky="w", pady=2)
+        ttk.Label(edit, text="留白").grid(row=4, column=0, sticky="w", pady=4)
         af2 = ttk.Frame(edit)
         af2.grid(row=4, column=1, columnspan=2, sticky="w")
         ttk.Label(af2, text="左边框x").pack(side="left")
@@ -624,7 +624,7 @@ class PdfEditorApp(tk.Tk):
         self.cb_gap.pack(side="left")
         ttk.Label(af2, text="字宽").pack(side="left", padx=(2, 0))
 
-        ttk.Label(edit, text="范围").grid(row=5, column=0, sticky="w", pady=2)
+        ttk.Label(edit, text="范围").grid(row=5, column=0, sticky="w", pady=4)
         self.v_scope = tk.StringVar(value="all")
         sf = ttk.Frame(edit)
         sf.grid(row=5, column=1, columnspan=2, sticky="w")
@@ -640,7 +640,7 @@ class PdfEditorApp(tk.Tk):
         edit.columnconfigure(1, weight=1)
 
     def _build_rules_pane(self, parent):
-        lst = ttk.LabelFrame(parent, text="修改清单", padding=6)
+        lst = ttk.LabelFrame(parent, text="修改清单", padding=8)
         lst.pack(fill="both", expand=True)
         wrap = ttk.Frame(lst)
         wrap.pack(fill="both", expand=True)
