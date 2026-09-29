@@ -11,6 +11,7 @@ pdf_edit_core —— PDF 原位文字替换核心逻辑（CLI 与 GUI 共用）
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -281,7 +282,9 @@ def _font_sig() -> str:
                     continue
         except OSError:
             continue
-    return str(hash(";".join(items)))
+    # 用稳定摘要：内置 hash() 对 str 每进程加盐，跨进程结果不同，
+    # 拿它做缓存签名会让缓存永远不命中（每次启动重扫全部字体文件）。
+    return hashlib.sha256(";".join(items).encode("utf-8")).hexdigest()[:16]
 
 
 _INDEX_CACHE = {"sig": None, "fonts": None, "maps": None}
@@ -563,7 +566,7 @@ def norm_rgb(c, default=(0, 0, 0)) -> tuple:
     if len(vals) < 3:
         return tuple(default)
     vals = vals[:3]
-    if max(vals) <= 1.0:                                  # 0-1 浮点写法
+    if max(vals) <= 1.0 and all(isinstance(v, float) for v in c):   # 只有全 float 才是 0-1 写法
         return tuple(int(round(v * 255)) for v in vals)
     return tuple(max(0, min(255, int(round(v)))) for v in vals)
 
