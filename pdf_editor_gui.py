@@ -203,6 +203,11 @@ A：在「修改清单」里选中那条点「删除选中」，或点「清空�
 
 Q：会不会把原文件改坏？
 A：不会。程序始终从原文件重新生成，只有点「另存为…」时才写出新文件。
+
+Q：为什么替换后的字换了字体，或者变成方框？
+A：你输入的文字里可能有当前字体没有的字形（例如把英文片段改成中文）。程序会**逐字**
+   改用包含该字形的字体（默认宋体优先），并在「替换」行右侧与日志里说明回退到了哪个
+   字体，所以不会画成方框。想固定字体，就在「字体」下拉里换一个覆盖这些字的字体。
 """
 
 
@@ -270,6 +275,8 @@ class PdfEditorApp(tk.Tk):
         self._drag = None                             # 左键框选状态（按下-拖动-松开）
         self._sel_from_range = False                  # 当前选中是不是框选出来的
         self._sel_span_count = 1                      # 框选到了几个片段（>1 才需要提醒）
+        self._sel_fonts = []                          # 当前选区涉及几种字体（框选可能多种）
+        self._glyph_log_sig = None                    # 字形提醒的日志去重
 
         # 主题：默认浅色；上次的选择会记住（settings.json 与字体缓存同目录）
         saved_theme = load_settings().get("theme")
@@ -654,10 +661,13 @@ class PdfEditorApp(tk.Tk):
         self.e_old.bind("<Return>", lambda e: self.add_rule())
 
         ttk.Label(edit, text="替换", font=UI_FONT_BOLD).grid(row=1, column=0, sticky="w", pady=5)
-        self.e_new = ttk.Entry(edit, width=30)
-        self.e_new.grid(row=1, column=1, columnspan=2, sticky="we", pady=5)
+        self.e_new = ttk.Entry(edit, width=24)
+        self.e_new.grid(row=1, column=1, sticky="we", pady=5)
         self.e_new.bind("<Return>", lambda e: self.add_rule())
         self.e_new.bind("<KeyRelease>", lambda e: self._on_new_text())
+        # 字形提醒就贴在输入框右边：选区混合字体 / 替换文字缺字形（会逐字回退）
+        self.lbl_glyph = ttk.Label(edit, text="", style="Muted.TLabel")
+        self.lbl_glyph.grid(row=1, column=2, sticky="e", padx=(6, 0))
 
         ttk.Label(edit, text="字体").grid(row=2, column=0, sticky="w", pady=4)
         fontbox = ttk.Frame(edit)
@@ -1680,15 +1690,19 @@ class PdfEditorApp(tk.Tk):
             k = (d["font"], round(float(d["size"]), 1), int(d["flags"]), int(d["color"]))
             cnt[k] = cnt.get(k, 0) + 1
         key = max(cnt, key=lambda k: cnt[k])
+        fonts = sorted({d["font"] for d in sel if d["font"]})
         union = fitz.Rect(sel[0]["rect"])
         for d in sel[1:]:
             union |= d["rect"]
         merged = {"rect": union, "text": self._join_selected(sel),
                   "font": key[0], "size": key[1], "flags": key[2], "color": key[3]}
         self.v_scope.set("range")             # 框选 = 只改这一段
-        self._apply_span_choice(merged, count=len(sel), from_range=True)
+        self._apply_span_choice(merged, count=len(sel), from_range=True, fonts=fonts)
         if len(cnt) > 1:
             self._log(f"提示：选区里有 {len(cnt)} 种样式，已统一按 {key[0]} {fmt_num(key[1])}pt 处理")
+        if len(fonts) > 1:
+            self._log(f"注意：本选区含 {len(fonts)} 种字体（{'、'.join(fonts)}）："
+                      f"新文字按出现最多的那一种起排，缺字形的字会逐字回退到覆盖它的字体")
 
     @staticmethod
     def _join_selected(sel):
@@ -1707,11 +1721,12 @@ class PdfEditorApp(tk.Tk):
             prev = d
         return out
 
-    def _apply_span_choice(self, d, count=1, from_range=False):
-        """把一个片段（或框选合并后的结果）填进表单。"""
+    def _apply_span_choice(self, d, count=1, from_range=False, fonts=None):
+        """把一个片段（或框选合并后的结果）填进表单。fonts = 本次选区涉及的所有字体名。"""
         rect, text, font, size = d["rect"], d["text"], d["font"], d["size"]
         self._sel_from_range = bool(from_range)
         self._sel_span_count = int(count)
+        self._sel_fonts = list(fonts or ([font] if font else []))
         self._sel_bbox = rect
         self._set_e_old(text)
         self.e_size.delete(0, "end")
@@ -1742,6 +1757,7 @@ class PdfEditorApp(tk.Tk):
         self._log(f'{head}: {text!r} → 字体 {font or "?"} / {info["family"]}, {fmt_num(size)}pt')
         if self.e_new.get().strip():
             self._enable_after()
+        self._update_glyph_note()
         self._schedule_draft_preview()
 
     def _on_new_text(self):
@@ -1749,7 +1765,51 @@ class PdfEditorApp(tk.Tk):
         self._update_hint()
         if self.e_old.get().strip() and self.e_new.get().strip():
             self._enable_after()
+        self._update_glyph_note()          # 打字即更新「替换」行标注（日志走防抖那次）
         self._schedule_draft_preview()
+
+    def _update_glyph_note(self, log=False):
+        """「替换」行右侧的小标注（log=True 时同时写日志）。
+
+        两类提醒：① 选区里不止一种字体（框选常见）；② 替换文字里有当前字体没有的字形
+        —— 这种会自动**逐字**回退到包含该字形的字体，这里把"哪几个字 → 落到哪个字体"
+        说清楚（预览与导出走同一套 core 逻辑，所以标注即所见）。
+        """
+        parts, detail = [], []
+        fonts = list(getattr(self, "_sel_fonts", ()) or ())
+        if len(fonts) > 1:
+            parts.append(f"⚠ {len(fonts)} 种字体")
+            detail.append("本选区含 %d 种字体：%s（新文字按出现最多的那一种起排，"
+                          "缺字形的字会逐字回退到覆盖它的字体）" % (len(fonts), "、".join(fonts)))
+        new = self.e_new.get().strip()
+        fp, ff = self._selected_font()
+        if self.orig is not None and new and fp:
+            fallback, no_font = {}, []
+            for ch, path, face, status in core.char_font_plan(new, fp, ff):
+                if status == "fallback":
+                    fallback.setdefault(core.font_label(path, face), []).append(ch)
+                elif status == "none":
+                    no_font.append(ch)
+            if fallback:
+                cnt = sum(len(v) for v in fallback.values())
+                parts.append(f"⚠ {cnt} 字回退")
+                detail.append("替换文字里有 %d 个字当前字体没有，已回退：%s"
+                              % (cnt, "；".join("%s → %s" % ("".join(v), k)
+                                                for k, v in fallback.items())))
+            if no_font:
+                parts.append(f"⚠ {len(no_font)} 字无字体")
+                detail.append("这些字连候选字体里都没有字形，可能显示成方框：%s" % "".join(no_font))
+        try:
+            self.lbl_glyph.configure(text=" · ".join(parts),
+                                     foreground=self._pal["warn"] if parts else self._pal["muted"])
+        except tk.TclError:
+            pass
+        sig = " | ".join(detail)
+        # 只有真正写了日志才记签名：打字时的无日志调用不能"吃掉"这次提醒
+        if log and sig and sig != self._glyph_log_sig:
+            for line in detail:
+                self._log(line)
+            self._glyph_log_sig = sig
 
     def _on_scope_change(self, _event=None):
         """「范围」变了：框选合并出来的原文按「所有相同文本」匹配不到东西，先提醒一句。"""
@@ -1770,6 +1830,7 @@ class PdfEditorApp(tk.Tk):
             self._show_font_info(self._font_info, self._sel_size)
         if self._draft_rule() is not None:
             self._enable_after()
+        self._update_glyph_note()
         self._schedule_draft_preview()
 
     def _schedule_draft_preview(self):
@@ -1783,6 +1844,7 @@ class PdfEditorApp(tk.Tk):
     def _do_draft_preview(self):
         self._draft_job = None
         self._render_all()
+        self._update_glyph_note(log=True)   # 打字停顿后再写日志，避免每敲一键刷屏
 
     def _nearest_left_border(self, rect):
         page = self._page()
@@ -1820,12 +1882,15 @@ class PdfEditorApp(tk.Tk):
         self._sel_rgb = None
         self._sel_from_range = False
         self._sel_span_count = 1
+        self._sel_fonts = []
+        self._glyph_log_sig = None
         self._color_override = None
         self.canvas.delete("sel")
         self._update_add_state()
         self._update_hint()
         self._update_color_widgets()
         self._set_font_row("")               # 没有选中片段了：识别行收起
+        self._update_glyph_note()
         self._schedule_draft_preview()      # 草稿没了：预览回到「只按清单」
 
     # ================= 规则 =================
@@ -2037,7 +2102,8 @@ class PdfEditorApp(tk.Tk):
             pg.add_redact_annot(r, fill=None)
             pg.apply_redactions(**core.PDF_REDACT)
             for ch, (x, y) in zip(text, origins):
-                pg.insert_text(fitz.Point(x, y), ch, fontsize=size, fontname=core.DEFAULT_FONT_NAME,
+                pg.insert_text(fitz.Point(x, y), ch, fontsize=size,
+                               fontname=core.font_resource_name(info["path"], info["face"]),
                                fontfile=font_file, color=rgb, fill=rgb,
                                render_mode=2, border_width=bw)
             got = gray(doc)
