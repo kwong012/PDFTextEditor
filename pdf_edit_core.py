@@ -579,6 +579,8 @@ def resolve_settings(rule: dict, cfg: dict) -> dict:
         "bold_stroke": float(rule.get("bold_stroke", cfg.get("bold_stroke", 0.0))),
         "pad_x": float(rule.get("pad_x", cfg.get("pad_x", DEFAULT_PAD_X))),
         "pad_y": float(rule.get("pad_y", cfg.get("pad_y", DEFAULT_PAD_Y))),
+        # 缺字形时的回退候选（不写就用内置候选：宋体优先）
+        "font_fallback": rule.get("font_fallback", cfg.get("font_fallback")),
     }
 
 
@@ -721,6 +723,131 @@ def _merge_ranges(found):
     return out
 
 
+# ==================== 字体资源名 / 字形覆盖 / 逐字回退 ====================
+# 插入文字时 PyMuPDF 会按 fontname 复用页面里已注册的字体资源：两条规则用了不同字体
+# 却传同一个 fontname 时，后一条会被前一条的字体顶替（实测：中文被画成方框、文字层
+# 也取不到）。所以字体资源名必须按 (字体文件, 字面) 唯一。
+_FONT_NAME_CACHE = {}
+_GLYPH_FONT_CACHE = {}
+
+
+def font_resource_name(font_file: str, face: int = 0) -> str:
+    """插入文字用的字体资源名：一个 (文件, 字面) 一个名字，避免互相顶替。"""
+    key = (os.path.normcase(font_file or ""), int(face or 0))
+    if key not in _FONT_NAME_CACHE:
+        _FONT_NAME_CACHE[key] = "PFE%02d" % len(_FONT_NAME_CACHE)
+    return _FONT_NAME_CACHE[key]
+
+
+def _glyph_font(font_file: str, face: int = 0):
+    """查询字形覆盖用的 Font（.ttc 先按字面解包，结果缓存）；读不到返回 None。"""
+    key = (font_file, int(face or 0))
+    if key not in _GLYPH_FONT_CACHE:
+        path = font_file
+        if os.path.splitext(font_file or "")[1].lower() in (".ttc", ".otc"):
+            try:
+                path = ensure_ttf(font_file, face)      # 按字面解包（有缓存）
+            except Exception:
+                path = font_file
+        try:
+            _GLYPH_FONT_CACHE[key] = fitz.Font(fontfile=path)
+        except Exception:
+            _GLYPH_FONT_CACHE[key] = None
+    return _GLYPH_FONT_CACHE[key]
+
+
+def _has_glyph(font, ch: str) -> bool:
+    """字体里有没有这个字符的字形（has_glyph 收的是码点 int，不是字符）。"""
+    if font is None:
+        return True                     # 拿不到字体就不拦，交给插入环节
+    try:
+        return font.has_glyph(ord(ch)) != 0
+    except Exception:
+        return True
+
+
+def missing_glyphs(text: str, font_file: str, face: int = 0) -> list:
+    """text 里在指定字体中**没有字形**的字符（去重、按出现顺序）。"""
+    font = _glyph_font(font_file, face)
+    out, seen = [], set()
+    for ch in text or "":
+        if ch in seen or ch.isspace():
+            continue
+        seen.add(ch)
+        if not _has_glyph(font, ch):
+            out.append(ch)
+    return out
+
+
+def font_label(font_file: str, face: int = 0) -> str:
+    """字体的显示名：优先内置候选里的中文标签，否则退回文件名。"""
+    for p, label in list_available_fonts():
+        if os.path.normcase(p) == os.path.normcase(font_file or ""):
+            return label
+    return os.path.basename(font_file or "")
+
+
+def _norm_fallback_list(items) -> list:
+    """把 font_fallback 的两种写法（"路径" / ["路径", 字面]）统一成 [(路径, 字面)]。"""
+    out = []
+    for it in (items or ()):
+        if isinstance(it, str):
+            out.append((it, 0))
+        elif isinstance(it, (list, tuple)) and it:
+            out.append((str(it[0]), int(it[1]) if len(it) > 1 and it[1] is not None else 0))
+    return out
+
+
+def font_fallback_chain(primary=None, extra=None) -> list:
+    """缺字形时的候选字体链：主字体 -> 用户指定的 extra -> 内置候选（宋体优先）。"""
+    chain, seen = [], set()
+
+    def add(path, face=0):
+        if not path:
+            return
+        key = (os.path.normcase(path), int(face or 0))
+        if key in seen:
+            return
+        seen.add(key)
+        chain.append((path, int(face or 0)))
+
+    if primary:
+        add(primary[0], primary[1])
+    for p, f in _norm_fallback_list(extra):
+        add(p, f)
+    for p, _label in list_available_fonts():
+        add(p, 0)
+    return chain
+
+
+def char_font_plan(text: str, font_file: str, face: int = 0, chain=None) -> list:
+    """逐字决定用哪个字体：主字体有字形就用主字体，否则沿回退链找第一个有的。
+
+    返回 [(字符, 字体文件, 字面, 状态)]，状态为：
+      "ok"       主字体就有该字形
+      "fallback" 换成了回退链里的某个字体
+      "none"     回退链里也没有，只能用主字体硬插（会显示成方框）
+    字宽/位置要按**实际使用的那个字体**算，所以调用方应直接用这份结果排字。
+    """
+    primary = (font_file, int(face or 0))
+    rest = [c for c in (chain or font_fallback_chain(primary)) if tuple(c) != primary]
+    out = []
+    for ch in text or "":
+        if ch.isspace():
+            out.append((ch, primary[0], primary[1], "ok"))
+            continue
+        if _has_glyph(_glyph_font(*primary), ch):
+            out.append((ch, primary[0], primary[1], "ok"))
+            continue
+        hit = None
+        for p, f in rest:               # 懒加载：命中即停，不会一次打开全部候选字体
+            if _has_glyph(_glyph_font(p, f), ch):
+                hit = (p, f)
+                break
+        out.append((ch, hit[0], hit[1], "fallback") if hit else (ch, primary[0], primary[1], "none"))
+    return out
+
+
 def _font_metrics(font_file: str):
     """字体度量对象（用来算真实字宽）；拿不到就返回 None（退回等宽步长）。"""
     try:
@@ -745,9 +872,10 @@ def _char_advances(new_text, font_size, metrics):
         return None
 
 
-def _lay_out(new_text, x0, y, step, font_size, metrics):
-    """从 x0 起排字：有字体度量就按真实字宽走，没有才用等宽步长。"""
-    adv = _char_advances(new_text, font_size, metrics)
+def _lay_out(new_text, x0, y, step, font_size, metrics, advances=None):
+    """从 x0 起排字：优先用 advances（逐字按"实际用的字体"算好的字宽），
+    其次用单一字体度量，都没有才用等宽步长。"""
+    adv = advances or _char_advances(new_text, font_size, metrics)
     out, x = [], x0
     for i in range(len(new_text)):
         out.append((x, y))
@@ -755,28 +883,41 @@ def _lay_out(new_text, x0, y, step, font_size, metrics):
     return out
 
 
-def compute_positions(origins, new_text, rule, font_size, metrics=None):
+def compute_positions(origins, new_text, rule, font_size, metrics=None, advances=None,
+                      keep_origins=None):
     """决定每个新字符画在哪。
 
     align='left' 时从 left_border_x + left_gap 起左对齐（给单元格留边框间距）；
     长度相同则逐字沿用原基点（中文/表格最准）；
     长度不同时按**字体真实字宽**续排 —— 拉丁字母宽窄不一，用平均步长硬排会
     "中间冒空格、逗号飘出去"，所以这里必须用真实度量。
+    advances：可选的逐字前进宽度（缺字形逐字回退后，同一个片段里各字可能来自不同字体，
+    只用量一份字体的宽度排字会让后面的字挤在一起）。
+    keep_origins：None=长度相同时沿用原基点（默认）；False=强制按字宽续排
+    （逐字回退换了字体时，原来的字距不再适用，硬套会把宽字叠在一起）。
     """
     xs = [o[0] for o in origins]
     y = origins[0][1]
     n = len(new_text)
     step = (xs[-1] - xs[0]) / (len(xs) - 1) if len(xs) > 1 else float(font_size)
+    if keep_origins is None:
+        keep_origins = (n == len(origins))
     if rule.get("align") == "left":
         x0 = float(rule["left_border_x"]) + float(rule.get("left_gap", 0.0))
-        return _lay_out(new_text, x0, y, step, font_size, metrics)
-    if n == len(origins):
+        return _lay_out(new_text, x0, y, step, font_size, metrics, advances)
+    if keep_origins:
         return list(origins)
-    return _lay_out(new_text, xs[0], y, step, font_size, metrics)
+    return _lay_out(new_text, xs[0], y, step, font_size, metrics, advances)
 
 
 def apply_replacements(doc, cfg, targets=None):
-    """执行删旧 + 重绘，就地修改 doc。返回实际处理的片段数。"""
+    """执行删旧 + 重绘，就地修改 doc。返回实际处理的片段数。
+
+    逐字选字体：主字体缺字形时沿 font_fallback（默认内置候选，宋体优先）回退，避免把
+    中文之类画成方框；字宽也按**实际使用的字体**算，回退后后面的字不会挤在一起。
+    字体资源名按 (文件, 字面) 唯一 —— 否则 PyMuPDF 会复用同名资源，后一条规则的字会被
+    前一条的字体顶替。
+    """
     cfg = cfg or {}
     repls = cfg.get("replacements", [])
     if targets is None:
@@ -800,19 +941,42 @@ def apply_replacements(doc, cfg, targets=None):
         doc[pno].apply_redactions(**PDF_REDACT)
 
     # 2) 逐字重绘
-    cache = {}
+    fonts = {}                                   # (文件, 字面) -> (可插入的 ttf, 度量)
+
+    def get_font(path, face):
+        key = (path, int(face or 0))
+        if key not in fonts:
+            ttf = ensure_ttf(path, key[1])
+            fonts[key] = (ttf, _font_metrics(ttf))
+        return fonts[key]
+
     for page, _bbox, origins, rule, st in plans:
-        key = (st["font_file"], st["font_face"])
-        if key not in cache:
-            ttf = ensure_ttf(st["font_file"], st["font_face"])
-            cache[key] = (ttf, _font_metrics(ttf))
-        ttf, metrics = cache[key]
-        pos = compute_positions(origins, rule["new"], rule, st["font_size"], metrics)
+        new_text = rule["new"]
+        primary = (st["font_file"], st["font_face"])
+        plan = char_font_plan(new_text, primary[0], primary[1],
+                              font_fallback_chain(primary, st.get("font_fallback")))
+        adv = []                                 # 逐字按"实际用的字体"量字宽
+        for _ch, path, face, _status in plan:
+            metrics = get_font(path, face)[1]
+            if metrics is None:
+                adv = None
+                break
+            try:
+                adv.append(metrics.text_length(_ch, fontsize=st["font_size"]))
+            except Exception:
+                adv = None
+                break
+        # 有字换了字体（回退）时不能再沿用原基点：字宽变了，硬套会叠在一起
+        keep = None if not any(s == "fallback" for _c, _p, _f, s in plan) else False
+        pos = compute_positions(origins, new_text, rule, st["font_size"],
+                                get_font(*primary)[1], advances=adv, keep_origins=keep)
         rgb = tuple(v / 255.0 for v in st["color"])          # 跟随原文颜色（默认）
-        for ch, (x, y) in zip(rule["new"], pos):
+        for (ch, path, face, _status), (x, y) in zip(plan, pos):
+            ttf, _metrics = get_font(path, face)
             page.insert_text(
                 fitz.Point(x, y), ch,
-                fontsize=st["font_size"], fontname=st["font_name"], fontfile=ttf,
+                fontsize=st["font_size"],
+                fontname=font_resource_name(path, face), fontfile=ttf,
                 color=rgb, fill=rgb,
                 render_mode=2, border_width=st["bold_stroke"],
             )
