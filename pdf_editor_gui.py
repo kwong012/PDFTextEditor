@@ -339,11 +339,12 @@ class PdfEditorApp(tk.Tk):
                            ("disabled", p["bg"])],
                foreground=[("disabled", p["disabled"])])
 
-        st.configure("TMenubutton", background=p["btn"], foreground=p["fg"],
-                     arrowcolor=p["fg"], bordercolor=p["border"],
-                     lightcolor=p["btn"], darkcolor=p["btn"], padding=(8, 3))
-        st.map("TMenubutton", background=[("active", p["btn_hover"])],
-               foreground=[("disabled", p["disabled"])])
+        for name in ("TMenubutton", "Toolbar.TMenubutton"):
+            st.configure(name, background=p["btn"], foreground=p["fg"],
+                         arrowcolor=p["fg"], bordercolor=p["border"],
+                         lightcolor=p["btn"], darkcolor=p["btn"], padding=(8, 3))
+            st.map(name, background=[("active", p["btn_hover"])],
+                   foreground=[("disabled", p["disabled"])])
 
         # 工具栏专用样式：底色与面板区分，控件背景跟着走
         st.configure("Toolbar.TFrame", background=p["bar_bg"])
@@ -352,12 +353,6 @@ class PdfEditorApp(tk.Tk):
                      focuscolor=p["bar_bg"])
         st.map("Toolbar.TCheckbutton", background=[("active", p["bar_bg"])],
                foreground=[("disabled", p["disabled"])])
-        st.configure("Toolbar.TMenubutton", background=p["btn"], foreground=p["fg"],
-                     arrowcolor=p["fg"], bordercolor=p["border"],
-                     lightcolor=p["btn"], darkcolor=p["btn"], padding=(8, 3))
-        st.map("Toolbar.TMenubutton", background=[("active", p["btn_hover"])],
-               foreground=[("disabled", p["disabled"])])
-
         for sty in ("TCheckbutton", "TRadiobutton"):
             st.configure(sty, background=p["bg"], foreground=p["fg"], focuscolor=p["bg"])
             st.map(sty, background=[("active", p["bg"])],
@@ -2032,14 +2027,14 @@ class PdfEditorApp(tk.Tk):
             doc = fitz.open(self.src_path)
             pg = doc[self.page_no]
             r = fitz.Rect(rect)
-            r.x0 -= 0.7
-            r.x1 += 0.7
-            r.y0 -= 1.2
-            r.y1 += 1.2
+            r.x0 -= core.DEFAULT_PAD_X
+            r.x1 += core.DEFAULT_PAD_X
+            r.y0 -= core.DEFAULT_PAD_Y
+            r.y1 += core.DEFAULT_PAD_Y
             pg.add_redact_annot(r, fill=None)
             pg.apply_redactions(**core.PDF_REDACT)
             for ch, (x, y) in zip(text, origins):
-                pg.insert_text(fitz.Point(x, y), ch, fontsize=size, fontname="simsun",
+                pg.insert_text(fitz.Point(x, y), ch, fontsize=size, fontname=core.DEFAULT_FONT_NAME,
                                fontfile=font_file, color=rgb, fill=rgb,
                                render_mode=2, border_width=bw)
             got = gray(doc)

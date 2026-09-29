@@ -20,6 +20,9 @@ import sys
 import pymupdf as fitz
 
 DEFAULT_FONT = r"C:\Windows\Fonts\simsun.ttc"
+DEFAULT_FONT_NAME = "simsun"      # 插入文字时给字体起的内部名（GUI / CLI 共用同一个默认）
+DEFAULT_PAD_X = 0.7               # 删旧字时向外扩的边距(pt)：太小留残影，太大会擦到邻字/表格线
+DEFAULT_PAD_Y = 1.2
 
 # 候选字体（覆盖面尽量广；运行时用 list_available_fonts() 过滤出实际存在的）
 CJK_FONT_CANDIDATES = [
@@ -571,12 +574,12 @@ def resolve_settings(rule: dict, cfg: dict) -> dict:
     return {
         "font_file": rule.get("font") or cfg.get("font") or DEFAULT_FONT,
         "font_face": int(rule.get("font_face") or cfg.get("font_face") or 0),
-        "font_name": rule.get("font_name") or cfg.get("font_name", "simsun"),
+        "font_name": rule.get("font_name") or cfg.get("font_name", DEFAULT_FONT_NAME),
         "font_size": size,
         "color": norm_rgb(rule.get("color", cfg.get("color")), (0, 0, 0)),
         "bold_stroke": float(rule.get("bold_stroke", cfg.get("bold_stroke", 0.0))),
-        "pad_x": float(rule.get("pad_x", cfg.get("pad_x", 0.7))),
-        "pad_y": float(rule.get("pad_y", cfg.get("pad_y", 1.2))),
+        "pad_x": float(rule.get("pad_x", cfg.get("pad_x", DEFAULT_PAD_X))),
+        "pad_y": float(rule.get("pad_y", cfg.get("pad_y", DEFAULT_PAD_Y))),
     }
 
 
