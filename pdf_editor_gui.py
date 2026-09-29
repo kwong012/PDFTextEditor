@@ -250,6 +250,7 @@ class PdfEditorApp(tk.Tk):
         self.page_no = 0
         self.zoom = 1.2
         self.rules = []
+        self.cfg_globals = {}             # 导入 config 时的全局默认（字体/字号/颜色…）
         self.bold_stroke = 0.0            # 伪加粗描边：默认关（「高级」里可开）
         self._span_cache = {}
         self._tiles = {}
@@ -1175,6 +1176,7 @@ class PdfEditorApp(tk.Tk):
         self.src_path = path
         self.page_no = 0
         self.rules = []
+        self.cfg_globals = {}
         self._after_doc = None
         self._preview_sig = None
         self._span_cache.clear()
@@ -1971,7 +1973,8 @@ class PdfEditorApp(tk.Tk):
             raise RuntimeError("未打开 PDF")
         rules = self.rules if rules is None else rules
         doc = fitz.open(self.src_path)
-        cfg = {"replacements": rules}
+        cfg = dict(self.cfg_globals)      # CLI 风格 config 的全局字体/字号/颜色靠这里补齐
+        cfg["replacements"] = rules
         targets = core.collect_targets(doc, rules, cfg)
         core.apply_replacements(doc, cfg, targets)
         return doc
@@ -2091,6 +2094,26 @@ class PdfEditorApp(tk.Tk):
             json.dump(cfg, f, ensure_ascii=False, indent=2)
         self._log(f"已导出 config: {path}")
 
+    # config 里"对整份文档生效"的默认项：导入时必须留下。CLI 风格的 config
+    # （规则不带 font/font_size/color，靠全局项）否则会静默回落到内置默认。
+    CONFIG_GLOBAL_KEYS = ("font", "font_face", "font_name", "font_size",
+                          "color", "bold_stroke", "pad_x", "pad_y")
+
+    def _apply_config(self, cfg, base_dir=None):
+        """把一份 config（GUI 导出或 CLI 手写）装进界面：规则 / 描边 / 全局默认。"""
+        self.rules = [r for r in cfg.get("replacements", [])
+                      if isinstance(r, dict) and r.get("old")]
+        self.bold_stroke = float(cfg.get("bold_stroke") or 0.0)
+        self._sync_stroke_widgets()
+        if not self.src_path and cfg.get("src"):
+            src = cfg["src"] if os.path.isabs(cfg["src"]) else os.path.join(base_dir or "", cfg["src"])
+            if os.path.exists(src):
+                self.load_pdf(src)
+        # 放在 load_pdf 之后：load_pdf 会重置全局默认（换文档就不该沿用旧 config 的）
+        self.cfg_globals = {k: cfg[k] for k in self.CONFIG_GLOBAL_KEYS if k in cfg}
+        self._refresh_rules()
+        self._render_all()
+
     def import_config(self):
         path = filedialog.askopenfilename(title="选择 config.json",
                                           filetypes=[("JSON", "*.json"), ("所有文件", "*.*")])
@@ -2102,15 +2125,7 @@ class PdfEditorApp(tk.Tk):
         except Exception as e:
             messagebox.showerror(APP_TITLE, f"读取失败: {e}")
             return
-        self.rules = [r for r in cfg.get("replacements", []) if isinstance(r, dict) and r.get("old")]
-        self.bold_stroke = float(cfg.get("bold_stroke") or 0.0)
-        self._sync_stroke_widgets()
-        if not self.src_path and cfg.get("src"):
-            src = cfg["src"] if os.path.isabs(cfg["src"]) else os.path.join(os.path.dirname(path), cfg["src"])
-            if os.path.exists(src):
-                self.load_pdf(src)
-        self._refresh_rules()
-        self._render_all()
+        self._apply_config(cfg, os.path.dirname(path))
         self._log(f"已导入 {len(self.rules)} 条规则: {path}")
 
 
