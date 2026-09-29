@@ -799,7 +799,12 @@ def _norm_fallback_list(items) -> list:
 
 
 def font_fallback_chain(primary=None, extra=None) -> list:
-    """缺字形时的候选字体链：主字体 -> 用户指定的 extra -> 内置候选（宋体优先）。"""
+    """缺字形时的候选字体链：主字体 -> 用户指定的 extra -> 内置候选（宋体优先）。
+
+    primary 与 extra 的元素都收两种写法："路径" 或 ("路径", 字面)。统一交给
+    _norm_fallback_list 归一 —— 否则传字符串会被当成序列拆开（primary[0]="C"、
+    primary[1]=":"），炸在 int(face) 上，报错还指不到病根。
+    """
     chain, seen = [], set()
 
     def add(path, face=0):
@@ -811,8 +816,9 @@ def font_fallback_chain(primary=None, extra=None) -> list:
         seen.add(key)
         chain.append((path, int(face or 0)))
 
-    if primary:
-        add(primary[0], primary[1])
+    prim = _norm_fallback_list([primary])
+    if prim:
+        add(*prim[0])
     for p, f in _norm_fallback_list(extra):
         add(p, f)
     for p, _label in list_available_fonts():
