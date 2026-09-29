@@ -38,6 +38,7 @@ TILE_MARGIN = 0.5          # 缓冲边 = 视口尺寸的 50%
 RENDER_DEBOUNCE_MS = 40
 DRAFT_DEBOUNCE_MS = 350    # 表单草稿变了之后，等这么久再重建预览（别每敲一键就重建整份文档）
 RIGHT_PANE_MIN = 400       # 右侧操作栏的最小宽度（保证表单/清单不被压扁）
+GLYPH_CHIP_MAX = 2         # 「替换」行右侧最多放几条字形提醒（多了会把输入框挤没，其余进日志）
 
 # 伪加粗描边（bold_stroke）：默认关（纯填充最接近原文）；开启时的默认粗细与标定候选档位。
 # 实测：描边 0.03 时墨量是原文的 145%（看着明显变粗），0.005 时约 96%（基本吻合）。
@@ -1771,37 +1772,48 @@ class PdfEditorApp(tk.Tk):
     def _update_glyph_note(self, log=False):
         """「替换」行右侧的小标注（log=True 时同时写日志）。
 
-        两类提醒：① 选区里不止一种字体（框选常见）；② 替换文字里有当前字体没有的字形
-        —— 这种会自动**逐字**回退到包含该字形的字体，这里把"哪几个字 → 落到哪个字体"
-        说清楚（预览与导出走同一套 core 逻辑，所以标注即所见）。
+        两类提醒：① 替换文字里有当前字体没有的字形 —— 会自动**逐字**回退到包含该字形的
+        字体；② 选区里不止一种字体（框选常见）。详细内容（"哪几个字 → 落到哪个字体"）
+        在打字停顿后写进日志；标注只留最要紧的两条，多的用「…」收尾，免得把输入框挤没。
+        预览与导出走同一套 core 逻辑，所以标注即所见。
         """
-        parts, detail = [], []
-        fonts = list(getattr(self, "_sel_fonts", ()) or ())
-        if len(fonts) > 1:
-            parts.append(f"⚠ {len(fonts)} 种字体")
-            detail.append("本选区含 %d 种字体：%s（新文字按出现最多的那一种起排，"
-                          "缺字形的字会逐字回退到覆盖它的字体）" % (len(fonts), "、".join(fonts)))
+        chips, detail = [], []                  # chips: (严重度, 短标注)；越靠前越该让人动手
         new = self.e_new.get().strip()
         fp, ff = self._selected_font()
         if self.orig is not None and new and fp:
-            fallback, no_font = {}, []
-            for ch, path, face, status in core.char_font_plan(new, fp, ff):
-                if status == "fallback":
-                    fallback.setdefault(core.font_label(path, face), []).append(ch)
-                elif status == "none":
-                    no_font.append(ch)
-            if fallback:
+            # 判定只跟 (字体, 字面, 新文字) 有关：同一串就别每敲一键重算一遍
+            key = (os.path.normcase(fp), int(ff), new)
+            if getattr(self, "_glyph_plan_key", None) != key:
+                fb, nof = {}, []
+                for ch, path, face, status in core.char_font_plan(new, fp, ff):
+                    if status == "fallback":
+                        fb.setdefault(core.font_label(path, face), []).append(ch)
+                    elif status == "none":
+                        nof.append(ch)
+                self._glyph_plan_key, self._glyph_plan_cache = key, (fb, nof)
+            fallback, no_font = self._glyph_plan_cache
+            if no_font:                             # 连候选字体都没有：只能人工处理，最要紧
+                chips.append((0, f"⚠ {len(no_font)} 字无字体"))
+                detail.append("这些字连候选字体里都没有字形，可能显示成方框：%s" % "".join(no_font))
+            if fallback:                            # 已自动逐字回退：说清落到哪个字体
                 cnt = sum(len(v) for v in fallback.values())
-                parts.append(f"⚠ {cnt} 字回退")
+                chips.append((1, f"⚠ {cnt} 字回退"))
                 detail.append("替换文字里有 %d 个字当前字体没有，已回退：%s"
                               % (cnt, "；".join("%s → %s" % ("".join(v), k)
                                                 for k, v in fallback.items())))
-            if no_font:
-                parts.append(f"⚠ {len(no_font)} 字无字体")
-                detail.append("这些字连候选字体里都没有字形，可能显示成方框：%s" % "".join(no_font))
+        fonts = list(getattr(self, "_sel_fonts", ()) or ())
+        if len(fonts) > 1:                          # 选区混了多种字体：上下文提醒
+            chips.append((2, f"⚠ {len(fonts)} 种字体"))
+            detail.append("本选区含 %d 种字体：%s（新文字按出现最多的那一种起排，"
+                          "缺字形的字会逐字回退到覆盖它的字体）" % (len(fonts), "、".join(fonts)))
+        chips.sort(key=lambda kv: kv[0])            # 稳定排序（同级保持原顺序）
+        shown = [t for _k, t in chips[:GLYPH_CHIP_MAX]]     # 「替换」行很窄：多的进日志
+        if len(chips) > GLYPH_CHIP_MAX:
+            shown.append("…")
+        tip = " · ".join(shown)
         try:
-            self.lbl_glyph.configure(text=" · ".join(parts),
-                                     foreground=self._pal["warn"] if parts else self._pal["muted"])
+            self.lbl_glyph.configure(text=tip,
+                                     foreground=self._pal["warn"] if tip else self._pal["muted"])
         except tk.TclError:
             pass
         sig = " | ".join(detail)
