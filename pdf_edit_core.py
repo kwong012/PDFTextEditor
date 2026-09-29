@@ -159,7 +159,6 @@ def _alias_file(pdf_font_name: str | None) -> str | None:
     return None
 
 
-
 def ensure_ttf(font_path: str, face: int = 0, cache_dir: str | None = None) -> str:
     """PyMuPDF 对 .ttc/.otc 支持不稳；若为集合字体，用 fontTools 取第 face 号字面另存 .ttf。"""
     if not font_path:
@@ -557,13 +556,13 @@ def norm_rgb(c, default=(0, 0, 0)) -> tuple:
                 return tuple(default)
         return tuple(default)
     try:
-        vals = [float(v) for v in c]
+        raw = list(c)[:3]                            # 保留原始类型：整数与浮点的含义不同（见下）
+        vals = [float(v) for v in raw]
     except (TypeError, ValueError):
         return tuple(default)
     if len(vals) < 3:
         return tuple(default)
-    vals = vals[:3]
-    if max(vals) <= 1.0 and all(isinstance(v, float) for v in c):   # 只有全 float 才是 0-1 写法
+    if max(vals) <= 1.0 and all(isinstance(v, float) for v in raw):   # 只有全 float 才是 0-1 写法
         return tuple(int(round(v * 255)) for v in vals)
     return tuple(max(0, min(255, int(round(v)))) for v in vals)
 
