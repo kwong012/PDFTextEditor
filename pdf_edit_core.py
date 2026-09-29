@@ -17,7 +17,7 @@ import os
 import re
 import sys
 
-import fitz
+import pymupdf as fitz
 
 DEFAULT_FONT = r"C:\Windows\Fonts\simsun.ttc"
 

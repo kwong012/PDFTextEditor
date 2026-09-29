@@ -21,7 +21,7 @@ import sys
 import tkinter as tk
 from tkinter import colorchooser, filedialog, messagebox, ttk
 
-import fitz
+import pymupdf as fitz
 import numpy as np
 
 import pdf_edit_core as core
@@ -535,12 +535,13 @@ class PdfEditorApp(tk.Tk):
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=8)
         # ── 缩放组（原独立一行的缩放条并进工具栏） ──
         ttk.Label(bar, text="缩放", style="Toolbar.TLabel").pack(side="left")
-        self.zoom_var = tk.DoubleVar(value=self.zoom)
+        self.zoom_var = tk.DoubleVar(value=self.zoom * 100)   # 百分比（与 set_zoom/_on_slider 口径一致）
         self.scale = ttk.Scale(bar, from_=ZOOM_MIN * 100, to=ZOOM_MAX * 100,
                                orient="horizontal", length=80, variable=self.zoom_var,
                                command=self._on_slider)
         self.scale.pack(side="left", padx=(6, 4))
         self.e_zoom = ttk.Entry(bar, width=4)
+        self.e_zoom.insert(0, f"{self.zoom * 100:.0f}")
         self.e_zoom.pack(side="left")
         ttk.Label(bar, text="%", style="Toolbar.TLabel").pack(side="left", padx=(2, 6))
         self.e_zoom.bind("<Return>", lambda e: self._apply_zoom_entry())

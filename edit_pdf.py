@@ -12,7 +12,7 @@ import json
 import os
 import sys
 
-import fitz
+import pymupdf as fitz
 
 import pdf_edit_core as core
 
