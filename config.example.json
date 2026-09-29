@@ -4,7 +4,8 @@
     "font/font_size/bold_stroke": "全局默认，可被单条规则覆盖",
     "replacements[].scope": "all=替换全部相同文本；single=仅替换 page+bbox 指定的那一处",
     "replacements[].align": "缺省=按原基点；left=从 left_border_x+left_gap 左对齐",
-    "replacements[].bbox": "single 时用于精确定位，PDF 坐标 [x0,y0,x1,y1]"
+    "replacements[].bbox": "single 时用于精确定位，PDF 坐标 [x0,y0,x1,y1]",
+    "font_fallback": "主字体缺字形时的候选字体：可写 \"C:\\Windows\\Fonts\\simsun.ttc\"、[\"路径\", 字面号]，或给数组按序尝试；不写则用内置候选（宋体优先）"
   },
 
   "src": "input.pdf",
@@ -14,11 +15,13 @@
   "font_name": "simsun",
   "font_size": 10,
   "bold_stroke": 0.03,
+  "font_fallback": ["C:\\Windows\\Fonts\\simhei.ttf", ["C:\\Windows\\Fonts\\msyh.ttc", 0]],
 
   "replacements": [
     { "old": "原文本示例", "new": "新文本示例" },
     { "old": "2026-01-01", "new": "2026-02-01" },
-    { "old": "姓名占位", "new": "姓名占位改" },
+    { "old": "姓名占位", "new": "姓名占位改",
+      "font_fallback": "C:\\Windows\\Fonts\\simsun.ttc" },
     {
       "old": "旧事由示例",
       "new": "新事由示例",
