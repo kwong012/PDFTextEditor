@@ -79,7 +79,6 @@ THEMES = {
         muted="#9a9a9a", mark="#ff5252", disabled="#6f6f6f",
     ),
 }
-THEME_ORDER = ("light", "dark")
 
 
 def settings_path() -> str:

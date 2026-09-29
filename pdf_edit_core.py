@@ -156,10 +156,6 @@ def _alias_file(pdf_font_name: str | None) -> str | None:
     return None
 
 
-def find_system_font(pdf_font_name: str | None) -> str:
-    """据 PDF 内字体名猜系统字体文件（按最长匹配键优先），找不到退回宋体。"""
-    return _alias_file(pdf_font_name) or DEFAULT_FONT
-
 
 def ensure_ttf(font_path: str, face: int = 0, cache_dir: str | None = None) -> str:
     """PyMuPDF 对 .ttc/.otc 支持不稳；若为集合字体，用 fontTools 取第 face 号字面另存 .ttf。"""
@@ -352,8 +348,6 @@ def _style_of(name: str) -> tuple:
         if kw in n:
             italic = True
             n = n.replace(kw, "")
-    for kw, b, i in (("bold", True, False), ("italic", False, True)):
-        pass
     return n, bold, italic
 
 
