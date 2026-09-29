@@ -21,6 +21,32 @@ def _abspath(base_dir, p):
     return p if os.path.isabs(p) else os.path.join(base_dir, p)
 
 
+def _glyph_note(rule, cfg):
+    """新文字里缺字形（会逐字回退到别的字体）时的说明；没有则返回空串。
+
+    与界面「替换」行/日志用的是同一套 core 判定，所以命令行看到的去向和界面一致。
+    """
+    st = core.resolve_settings(rule, cfg)
+    new = rule.get("new") or ""
+    primary = (st["font_file"], st["font_face"])
+    plan = core.char_font_plan(new, primary[0], primary[1],
+                               core.font_fallback_chain(primary, st.get("font_fallback")))
+    fallback, none = {}, []
+    for ch, path, face, status in plan:
+        if status == "fallback":
+            fallback.setdefault(core.font_label(path, face), []).append(ch)
+        elif status == "none":
+            none.append(ch)
+    parts = []
+    if fallback:
+        parts.append("缺字形 %d 个，回退：%s"
+                     % (sum(len(v) for v in fallback.values()),
+                        "；".join("%s → %s" % ("".join(v), k) for k, v in fallback.items())))
+    if none:
+        parts.append("有 %d 个字连候选字体里都没有，可能显示成方框：%s" % (len(none), "".join(none)))
+    return "；".join(parts)
+
+
 def main():
     ap = argparse.ArgumentParser(description="PDF 原位文字替换（保持外观一致）")
     ap.add_argument("--config", required=True, help="JSON 配置文件")
@@ -49,6 +75,12 @@ def main():
     for rule in repls:
         if id(rule) not in matched_olds:
             print(f"  [警告] 未找到片段: {rule.get('old')!r}", file=sys.stderr)
+
+    # 缺字形的字会被逐字回退：先把去向说清楚（dry-run 时尤其有用）
+    for rule in {id(r): r for _p, _b, _o, r, _s in targets}.values():
+        note = _glyph_note(rule, cfg)
+        if note:
+            print(f"  [提示] {rule.get('old')!r} -> {rule.get('new')!r}：{note}")
 
     if args.dry_run:
         return 0 if targets else 1
